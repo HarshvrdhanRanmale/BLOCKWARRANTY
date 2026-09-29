@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "ethers": "^6.17.0",
+    "lucide-react": "^1.47.0",
+    "qrcode.react": "^4.2.0",
+    "react-router-dom": "^7.18.4",
+    "tailwindcss": "^4.3.3"
+  }
+}
