@@ -2,7 +2,6 @@ import {
   LayoutDashboard,
   Package,
   Plus,
-  Search,
   Repeat2,
   UserRound,
   ChevronRight,
@@ -35,11 +34,6 @@ function Sidebar({
       name: "Register Product",
       icon: Plus,
       path: "/register-product",
-    },
-    {
-      name: "Verify Product",
-      icon: Search,
-      path: "/verify",
     },
     {
       name: "Transfer Ownership",

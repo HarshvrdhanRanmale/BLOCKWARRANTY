@@ -1,5 +1,4 @@
 import {
-  Package,
   ShieldCheck,
   ArrowRight,
   ArrowLeft,
@@ -17,40 +16,25 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 
-function RegisterProduct() {
-  const [sidebarPinnedOpen, setSidebarPinnedOpen] = useState(false);
-  const [sidebarHovered, setSidebarHovered] = useState(false);
-  const sidebarOpen = sidebarPinnedOpen || sidebarHovered;
+const PRODUCT_CATEGORIES = [
+  "Laptop",
+  "Smartphone",
+  "Headphones",
+  "Smartwatch",
+  "Tablet",
+  "Electronics",
+  "Software",
+  "Other",
+];
 
-  const [currentStep, setCurrentStep] = useState(1);
-
-  const [invoiceFile, setInvoiceFile] = useState(null);
-  const [invoicePreview, setInvoicePreview] = useState("");
-
-  const [extracting, setExtracting] = useState(false);
-  const [extractedData, setExtractedData] = useState(null);
-  const [extractionError, setExtractionError] = useState("");
-  const [showAllPricing, setShowAllPricing] = useState(false);
-
-  const [imagePreview, setImagePreview] = useState("");
-
-  const [successMessage, setSuccessMessage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
-
-  const invoiceInputRef = useRef(null);
-  const imageInputRef = useRef(null);
-
- const [formData, setFormData] = useState({
+const createEmptyFormData = () => ({
   productName: "",
   brand: "",
   category: "",
   purchaseDate: "",
-
   warrantyPeriod: "",
   warrantyUnit: "Years",
-
   invoiceNumber: "",
-
   currency: "",
   unitPrice: "",
   quantity: "",
@@ -62,11 +46,40 @@ function RegisterProduct() {
   total: "",
   amountPaid: "",
   balanceDue: "",
-
   description: "",
   productImage: "",
+  productImageSourceUrl: "",
+  productImageLicense: "",
+  productImageArtist: "",
   invoiceFile: "",
 });
+
+function RegisterProduct() {
+  const [sidebarPinnedOpen, setSidebarPinnedOpen] = useState(false);
+  const [sidebarHovered, setSidebarHovered] = useState(false);
+  const sidebarOpen = sidebarPinnedOpen || sidebarHovered;
+
+  const [currentStep, setCurrentStep] = useState(1);
+
+  const [invoiceFile, setInvoiceFile] = useState(null);
+  const [invoicePreview, setInvoicePreview] = useState("");
+
+  const [extracting, setExtracting] = useState(false);
+  const [extractionError, setExtractionError] = useState("");
+  const [showAllPricing, setShowAllPricing] = useState(false);
+
+  const [imagePreview, setImagePreview] = useState("");
+  const [imageSearchStatus, setImageSearchStatus] = useState("");
+  const [imageAttribution, setImageAttribution] = useState(null);
+
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const invoiceInputRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const imageSearchId = useRef(0);
+
+  const [formData, setFormData] = useState(createEmptyFormData);
 
   useEffect(() => {
     if (!successMessage) return;
@@ -127,6 +140,17 @@ function RegisterProduct() {
     setErrorMessage("");
     setExtractionError("");
     setInvoiceFile(file);
+    imageSearchId.current += 1;
+    setImageSearchStatus("");
+    setImageAttribution(null);
+    setImagePreview("");
+    setFormData((prev) => ({
+      ...prev,
+      productImage: "",
+      productImageSourceUrl: "",
+      productImageLicense: "",
+      productImageArtist: "",
+    }));
 
     if (file.type.startsWith("image/")) {
       const reader = new FileReader();
@@ -144,7 +168,7 @@ function RegisterProduct() {
   };
 
   // =========================================================
-  // MISTRAL INVOICE EXTRACTION
+  // INVOICE EXTRACTION
   // =========================================================
 
   const extractInvoice = async (file) => {
@@ -176,37 +200,38 @@ function RegisterProduct() {
 
       const extracted = data.extractedData || {};
 
-      setExtractedData(extracted);
-
       setFormData((prev) => ({
-  ...prev,
-
-  productName: extracted.productName || "",
-  brand: extracted.brand || "",
-  category: extracted.category || "",
-  purchaseDate: extracted.purchaseDate || "",
-
-  warrantyPeriod: extracted.warrantyPeriod || "",
-  warrantyUnit: extracted.warrantyUnit || "Years",
-
-  invoiceNumber: extracted.invoiceNumber || "",
-
-  currency: extracted.currency || "",
-  unitPrice: extracted.unitPrice || "",
-  quantity: extracted.quantity || "",
-  lineItemAmount: extracted.lineItemAmount || "",
-  subtotal: extracted.subtotal || "",
-  discount: extracted.discount || "",
-  shippingCost: extracted.shippingCost || "",
-  tax: extracted.tax || "",
-  total: extracted.total || "",
-  amountPaid: extracted.amountPaid || "",
-  balanceDue: extracted.balanceDue || "",
-
-  description: extracted.description || "",
-}));
+        ...prev,
+        productName: extracted.productName || "",
+        brand: extracted.brand || "",
+        category: PRODUCT_CATEGORIES.includes(extracted.category)
+          ? extracted.category
+          : "Other",
+        purchaseDate: extracted.purchaseDate || "",
+        warrantyPeriod: extracted.warrantyPeriod || "",
+        warrantyUnit: extracted.warrantyUnit || "Years",
+        invoiceNumber: extracted.invoiceNumber || "",
+        currency: extracted.currency || "",
+        unitPrice: extracted.unitPrice || "",
+        quantity: extracted.quantity || "",
+        lineItemAmount: extracted.lineItemAmount || "",
+        subtotal: extracted.subtotal || "",
+        discount: extracted.discount || "",
+        shippingCost: extracted.shippingCost || "",
+        tax: extracted.tax || "",
+        total: extracted.total || "",
+        amountPaid: extracted.amountPaid || "",
+        balanceDue: extracted.balanceDue || "",
+        description: extracted.description || "",
+      }));
 
       setCurrentStep(2);
+
+      if (extracted.productName) {
+        void lookupProductImage(extracted.productName, extracted.brand || "");
+      } else {
+        setImageSearchStatus("Add a product name to search for an image.");
+      }
     } catch (error) {
       console.error(
         "Invoice extraction error:",
@@ -231,10 +256,14 @@ function RegisterProduct() {
   // =========================================================
 
   const removeInvoice = () => {
+    imageSearchId.current += 1;
     setInvoiceFile(null);
     setInvoicePreview("");
-    setExtractedData(null);
     setExtractionError("");
+    setImagePreview("");
+    setImageSearchStatus("");
+    setImageAttribution(null);
+    setFormData(createEmptyFormData());
     setCurrentStep(1);
     setErrorMessage("");
 
@@ -246,6 +275,54 @@ function RegisterProduct() {
   // =========================================================
   // PRODUCT IMAGE
   // =========================================================
+
+  const lookupProductImage = async (productName, brand) => {
+    const requestId = ++imageSearchId.current;
+    setImageSearchStatus("Searching for a possible product image...");
+    setImageAttribution(null);
+
+    try {
+      const query = new URLSearchParams({ productName, brand });
+      const response = await fetch(
+        `http://localhost:5000/api/product-image?${query.toString()}`
+      );
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(
+          "The image-search API is unavailable. Restart the backend from the backend folder and try again."
+        );
+      }
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Product image search failed.");
+      }
+
+      if (requestId !== imageSearchId.current) return;
+
+      if (!data.image?.imageUrl) {
+        setImageSearchStatus("No matching image found. You can upload one instead.");
+        return;
+      }
+
+      setImagePreview(data.image.imageUrl);
+      setFormData((prev) => ({
+        ...prev,
+        productImage: data.image.imageUrl,
+        productImageSourceUrl: data.image.sourceUrl || "",
+        productImageLicense: data.image.license || "",
+        productImageArtist: data.image.artist || "",
+      }));
+      setImageAttribution(data.image);
+      setImageSearchStatus("Possible match found. Verify it or upload a different image.");
+    } catch (error) {
+      if (requestId !== imageSearchId.current) return;
+      console.error("Product image search error:", error);
+      setImageSearchStatus(
+        error.message || "Image search failed. You can upload an image instead."
+      );
+    }
+  };
 
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
@@ -273,6 +350,9 @@ function RegisterProduct() {
     }
 
     setErrorMessage("");
+    imageSearchId.current += 1;
+    setImageSearchStatus("Using your uploaded image.");
+    setImageAttribution(null);
 
     const reader = new FileReader();
 
@@ -282,7 +362,14 @@ function RegisterProduct() {
       setFormData((prev) => ({
         ...prev,
         productImage: reader.result,
+        productImageSourceUrl: "",
+        productImageLicense: "",
+        productImageArtist: "",
       }));
+    };
+
+    reader.onerror = () => {
+      setErrorMessage("The selected product image could not be read.");
     };
 
     reader.readAsDataURL(file);
@@ -330,39 +417,15 @@ function RegisterProduct() {
       );
 
       // Reset everything
-      setFormData({
-  productName: "",
-  brand: "",
-  category: "",
-  purchaseDate: "",
-
-  warrantyPeriod: "",
-  warrantyUnit: "Years",
-
-  invoiceNumber: "",
-
-  currency: "",
-  unitPrice: "",
-  quantity: "",
-  lineItemAmount: "",
-  subtotal: "",
-  discount: "",
-  shippingCost: "",
-  tax: "",
-  total: "",
-  amountPaid: "",
-  balanceDue: "",
-
-  description: "",
-  productImage: "",
-  invoiceFile: "",
-});
+      setFormData(createEmptyFormData());
 
       setInvoiceFile(null);
       setInvoicePreview("");
-      setExtractedData(null);
       setImagePreview("");
+      setImageSearchStatus("");
+      setImageAttribution(null);
       setCurrentStep(1);
+      imageSearchId.current += 1;
 
       if (invoiceInputRef.current) {
         invoiceInputRef.current.value = "";
@@ -385,22 +448,6 @@ function RegisterProduct() {
   };
 
   // =========================================================
-  // STEP NAVIGATION
-  // =========================================================
-
-  const goToReview = () => {
-    setErrorMessage("");
-
-    if (!formData.productName) {
-      setErrorMessage(
-        "Product name is required before review."
-      );
-      return;
-    }
-
-    setCurrentStep(3);
-  };
-
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A]">
 
@@ -767,7 +814,7 @@ function RegisterProduct() {
               CONTENT
           ================================================= */}
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_300px]">
+          <div className="mt-6">
 
             <div>
 
@@ -787,33 +834,21 @@ function RegisterProduct() {
                   retryExtraction={() => invoiceFile && extractInvoice(invoiceFile)}
                   continueManually={() => {
                     setExtractionError("");
-                    setCurrentStep(3);
+                    setCurrentStep(2);
                   }}
                 />
               )}
 
               {/* =============================================
-                  STEP 2 — EXTRACTED DATA
+                  STEP 2 — REVIEW & EDIT
               ============================================= */}
 
               {currentStep === 2 && (
-                <ExtractedDataStep
-                  extractedData={extractedData}
-                  invoiceFile={invoiceFile}
-                  onContinue={() => setCurrentStep(3)}
-                  onBack={() => setCurrentStep(1)}
-                />
-              )}
-
-              {/* =============================================
-                  STEP 3 — REVIEW
-              ============================================= */}
-
-              {currentStep === 3 && (
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    setCurrentStep(4);
+                    setErrorMessage("");
+                    setCurrentStep(3);
                   }}
                   className="
                     overflow-hidden
@@ -1181,6 +1216,15 @@ function RegisterProduct() {
                         imagePreview={imagePreview}
                         imageInputRef={imageInputRef}
                         handleImageChange={handleImageChange}
+                        imageSearchStatus={imageSearchStatus}
+                        imageAttribution={imageAttribution}
+                        onSearchImage={() =>
+                          lookupProductImage(formData.productName, formData.brand)
+                        }
+                        imageSearching={
+                          imageSearchStatus === "Searching for a possible product image..."
+                        }
+                        hasProductName={Boolean(formData.productName.trim())}
                       />
 
                     </div>
@@ -1199,7 +1243,7 @@ function RegisterProduct() {
 
                       <button
                         type="button"
-                        onClick={() => setCurrentStep(2)}
+                        onClick={() => setCurrentStep(1)}
                         className="
                           inline-flex
                           h-12
@@ -1248,10 +1292,10 @@ function RegisterProduct() {
               )}
 
               {/* =============================================
-                  STEP 4 — REGISTER
+                  STEP 3 — CONFIRM & REGISTER
               ============================================= */}
 
-              {currentStep === 4 && (
+              {currentStep === 3 && (
                 <form
                   onSubmit={handleSubmit}
                   className="
@@ -1326,63 +1370,66 @@ function RegisterProduct() {
 
                       <div className="grid gap-4 sm:grid-cols-2">
 
-                        <SummaryItem
-                          label="Product"
-                          value={formData.productName}
-                        />
+                        <div className="sm:col-span-2">
+                          {imagePreview ? (
+                            <img
+                              src={imagePreview}
+                              alt={`${formData.productName} product`}
+                              className="h-48 w-full rounded-xl bg-white object-contain p-3"
+                            />
+                          ) : (
+                            <div className="flex h-48 items-center justify-center rounded-xl bg-white text-sm text-slate-500">
+                              No product image added
+                            </div>
+                          )}
+                        </div>
 
+                        <SummaryItem label="Product" value={formData.productName} />
+                        <SummaryItem label="Brand" value={formData.brand} />
+                        <SummaryItem label="Category" value={formData.category} />
+                        <SummaryItem label="Purchase Date" value={formData.purchaseDate} />
                         <SummaryItem
-                          label="Brand"
-                          value={formData.brand}
-                        />
-
-                        <SummaryItem
-                          label="Category"
-                          value={formData.category}
-                        />
-
-                        <SummaryItem
-                          label="Purchase Date"
-                          value={formData.purchaseDate}
-                        />
-
-                        <SummaryItem
-  label="Warranty"
-  value={
-    formData.warrantyPeriod
-      ? `${formData.warrantyPeriod} ${formData.warrantyUnit}`
-      : "Not specified"
-  }
-/>
-
-                        <SummaryItem
-                          label="Invoice"
+                          label="Warranty"
                           value={
-                            formData.invoiceNumber ||
-                            "Not provided"
+                            formData.warrantyPeriod
+                              ? `${formData.warrantyPeriod} ${formData.warrantyUnit}`
+                              : ""
                           }
                         />
-
-                        {formData.total && (
-  <SummaryItem
-    label="Invoice Total"
-    value={`${formData.currency || ""} ${formData.total}`}
-  />
-)}
-
-{formData.amountPaid && (
-  <SummaryItem
-    label="Amount Paid"
-    value={`${formData.currency || ""} ${formData.amountPaid}`}
-  />
-)}
-
-{formData.balanceDue && (
-  <SummaryItem
-    label="Balance Due"
-    value={`${formData.currency || ""} ${formData.balanceDue}`}
-  />
-)}
+                        <SummaryItem label="Invoice Number" value={formData.invoiceNumber} />
+                        <SummaryItem label="Currency" value={formData.currency} />
+                        <SummaryItem label="Unit Price" value={formData.unitPrice} />
+                        <SummaryItem label="Quantity" value={formData.quantity} />
+                        <SummaryItem label="Line Item Amount" value={formData.lineItemAmount} />
+                        <SummaryItem label="Subtotal" value={formData.subtotal} />
+                        <SummaryItem label="Discount" value={formData.discount} />
+                        <SummaryItem label="Shipping Cost" value={formData.shippingCost} />
+                        <SummaryItem label="Tax" value={formData.tax} />
+                        <SummaryItem label="Invoice Total" value={formData.total} />
+                        <SummaryItem label="Amount Paid" value={formData.amountPaid} />
+                        <SummaryItem label="Balance Due" value={formData.balanceDue} />
+                        <div className="sm:col-span-2">
+                          <SummaryItem label="Description" value={formData.description} />
+                        </div>
+                        {imageAttribution?.sourceUrl && (
+                          <p className="sm:col-span-2 text-xs text-slate-500">
+                            Image source:{" "}
+                            <a
+                              href={imageAttribution.sourceUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-medium text-blue-700 underline"
+                            >
+                              Wikimedia Commons
+                            </a>
+                            {imageAttribution.license
+                              ? ` · ${imageAttribution.license}`
+                              : ""}
+                            {imageAttribution.artist
+                              ? ` · ${imageAttribution.artist}`
+                              : ""}
+                          </p>
+                        )}
 
                       </div>
                     </div>
@@ -1400,7 +1447,7 @@ function RegisterProduct() {
 
                       <button
                         type="button"
-                        onClick={() => setCurrentStep(3)}
+                        onClick={() => setCurrentStep(2)}
                         className="
                           inline-flex
                           h-12
@@ -1451,122 +1498,6 @@ function RegisterProduct() {
 
             </div>
 
-            {/* =================================================
-                SIDE INFORMATION
-            ================================================= */}
-
-            <aside className="space-y-5">
-
-              <div
-                className="
-                  rounded-[24px]
-                  border
-                  border-[#BFDBFE]
-                  bg-[#E0EFFF]/60
-                  p-6
-                "
-              >
-
-                <div
-                  className="
-                    mb-5
-                    flex
-                    h-11
-                    w-11
-                    items-center
-                    justify-center
-                    rounded-xl
-                    bg-[#2563EB]
-                    text-white
-                  "
-                >
-                  <Sparkles size={21} />
-                </div>
-
-                <h3 className="text-base font-bold">
-                  AI-Powered Registration
-                </h3>
-
-                <p
-                  className="
-                    mt-2
-                    text-xs
-                    leading-5
-                    text-[#64748B]
-                  "
-                >
-                  Gemini analyzes your invoice and
-                  automatically extracts the product
-                  information for you.
-                </p>
-
-                <div className="mt-5 space-y-3">
-
-                  <Feature text="Automatic data extraction" />
-
-                  <Feature text="Review before registration" />
-
-                  <Feature text="Automatic Product ID" />
-
-                  <Feature text="Warranty record creation" />
-
-                </div>
-              </div>
-
-              <div
-                className="
-                  rounded-[24px]
-                  border
-                  border-slate-200
-                  bg-white
-                  p-6
-                  shadow-[0_8px_30px_rgba(15,23,42,0.04)]
-                "
-              >
-
-                <p
-                  className="
-                    text-[10px]
-                    font-bold
-                    uppercase
-                    tracking-[0.18em]
-                    text-[#64748B]
-                  "
-                >
-                  Registration Flow
-                </p>
-
-                <div className="mt-5 space-y-5">
-
-                  <ProcessStep
-                    number="01"
-                    title="Upload Invoice"
-                    active={currentStep === 1}
-                  />
-
-                  <ProcessStep
-                    number="02"
-                    title="AI Extraction"
-                    active={currentStep === 2}
-                  />
-
-                  <ProcessStep
-                    number="03"
-                    title="Review & Edit"
-                    active={currentStep === 3}
-                  />
-
-                  <ProcessStep
-                    number="04"
-                    title="Register Product"
-                    active={currentStep === 4}
-                  />
-
-                </div>
-              </div>
-
-            </aside>
-
           </div>
         </div>
       </main>
@@ -1581,9 +1512,8 @@ function RegisterProduct() {
 function StepIndicator({ currentStep }) {
   const steps = [
     "Upload Invoice",
-    "AI Extraction",
     "Review & Edit",
-    "Register",
+    "Confirm & Register",
   ];
 
   return (
@@ -1597,7 +1527,7 @@ function StepIndicator({ currentStep }) {
         p-4
       "
     >
-      <div className="flex min-w-[650px] items-center">
+      <div className="flex min-w-[500px] items-center">
 
         {steps.map((step, index) => {
           const number = index + 1;
@@ -2083,294 +2013,6 @@ function UploadInvoiceStep({
 }
 
 // =========================================================
-// EXTRACTED DATA STEP
-// =========================================================
-
-function ExtractedDataStep({
-  extractedData,
-  invoiceFile,
-  onContinue,
-  onBack,
-}) {
-  return (
-    <div
-      className="
-        overflow-hidden
-        rounded-[28px]
-        border
-        border-slate-200
-        bg-white
-        shadow-[0_12px_40px_rgba(15,23,42,0.05)]
-      "
-    >
-
-      <div
-        className="
-          border-b
-          border-slate-100
-          bg-gradient-to-r
-          from-[#F8FAFC]
-          to-[#E0EFFF]/45
-          px-6
-          py-6
-          sm:px-8
-        "
-      >
-
-        <div className="flex items-center gap-4">
-
-          <div
-            className="
-              flex
-              h-12
-              w-12
-              items-center
-              justify-center
-              rounded-2xl
-              bg-[#E0EFFF]
-              text-[#2563EB]
-            "
-          >
-            <Sparkles size={23} />
-          </div>
-
-          <div>
-            <h3 className="text-base font-bold">
-              AI Extraction Complete
-            </h3>
-
-            <p className="mt-0.5 text-xs text-[#64748B]">
-              Gemini found the following information
-              from your invoice.
-            </p>
-          </div>
-
-        </div>
-      </div>
-
-      <div className="px-6 py-7 sm:px-8">
-
-        {invoiceFile && (
-          <div
-            className="
-              mb-6
-              flex
-              items-center
-              gap-3
-              rounded-2xl
-              border
-              border-green-200
-              bg-green-50
-              px-4
-              py-3
-            "
-          >
-            <CheckCircle2
-              size={18}
-              className="text-green-600"
-            />
-
-            <p
-              className="
-                text-sm
-                font-semibold
-                text-green-700
-              "
-            >
-              Invoice analyzed successfully
-            </p>
-          </div>
-        )}
-
-        <div className="grid gap-4 sm:grid-cols-2">
-
-          <ExtractedItem
-            label="Product Name"
-            value={extractedData?.productName}
-          />
-
-          <ExtractedItem
-            label="Brand"
-            value={extractedData?.brand}
-          />
-
-          <ExtractedItem
-            label="Category"
-            value={extractedData?.category}
-          />
-
-          <ExtractedItem
-            label="Purchase Date"
-            value={extractedData?.purchaseDate}
-          />
-
-          <ExtractedItem
-            label="Invoice Number"
-            value={extractedData?.invoiceNumber}
-          />
-
-          <ExtractedItem
-            label="Warranty"
-            value={
-              extractedData?.warrantyPeriod
-                ? `${extractedData.warrantyPeriod} ${extractedData.warrantyUnit}`
-                : ""
-            }
-          />
-
-        </div>
-
-        {extractedData?.description && (
-          <div className="mt-4">
-            <ExtractedItem
-              label="Description"
-              value={extractedData.description}
-            />
-          </div>
-        )}
-
-        <div
-          className="
-            mt-7
-            rounded-2xl
-            border
-            border-[#BFDBFE]
-            bg-[#E0EFFF]/50
-            p-4
-          "
-        >
-          <div className="flex items-start gap-3">
-
-            <Info
-              size={18}
-              className="
-                mt-0.5
-                shrink-0
-                text-[#2563EB]
-              "
-            />
-
-            <p
-              className="
-                text-xs
-                leading-5
-                text-[#475569]
-              "
-            >
-              AI extraction is not always perfect.
-              You will be able to review and edit every
-              field before registering the product.
-            </p>
-
-          </div>
-        </div>
-
-        <div
-          className="
-            mt-7
-            flex
-            flex-col
-            gap-3
-            sm:flex-row
-            sm:justify-between
-          "
-        >
-
-          <button
-            type="button"
-            onClick={onBack}
-            className="
-              inline-flex
-              h-12
-              items-center
-              justify-center
-              gap-2
-              rounded-xl
-              border
-              border-slate-200
-              px-5
-              text-sm
-              font-semibold
-              text-[#334155]
-              hover:bg-slate-50
-            "
-          >
-            <ArrowLeft size={17} />
-            Back
-          </button>
-
-          <button
-            type="button"
-            onClick={onContinue}
-            className="
-              inline-flex
-              h-12
-              items-center
-              justify-center
-              gap-2
-              rounded-xl
-              bg-[#2563EB]
-              px-6
-              text-sm
-              font-semibold
-              text-white
-              shadow-[0_10px_24px_rgba(37,99,235,0.22)]
-              hover:bg-[#1D4EDB]
-            "
-          >
-            Review & Edit
-            <ArrowRight size={17} />
-          </button>
-
-        </div>
-
-      </div>
-    </div>
-  );
-}
-
-// =========================================================
-// EXTRACTED ITEM
-// =========================================================
-
-function ExtractedItem({ label, value }) {
-  return (
-    <div
-      className="
-        rounded-xl
-        border
-        border-slate-200
-        bg-white
-        p-4
-      "
-    >
-      <p
-        className="
-          text-[10px]
-          font-bold
-          uppercase
-          tracking-[0.12em]
-          text-[#94A3B8]
-        "
-      >
-        {label}
-      </p>
-
-      <p
-        className="
-          mt-1
-          text-sm
-          font-semibold
-          text-[#0F172A]
-        "
-      >
-        {value || "Not detected"}
-      </p>
-    </div>
-  );
-}
-
-// =========================================================
 // PRODUCT IMAGE
 // =========================================================
 
@@ -2378,6 +2020,11 @@ function ProductImageUpload({
   imagePreview,
   imageInputRef,
   handleImageChange,
+  imageSearchStatus,
+  imageAttribution,
+  onSearchImage,
+  imageSearching,
+  hasProductName,
 }) {
   return (
     <div className="md:col-span-2">
@@ -2513,10 +2160,31 @@ function ProductImageUpload({
                 />
 
                 <p className="text-sm font-semibold">
-                  Image uploaded
+                  {imageAttribution ? "Suggested image found" : "Product image selected"}
                 </p>
 
               </div>
+
+              {imageSearchStatus && (
+                <p className="mt-1 max-w-md text-xs text-slate-600">
+                  {imageSearchStatus}
+                </p>
+              )}
+
+              {imageAttribution?.sourceUrl && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Source:{" "}
+                  <a
+                    href={imageAttribution.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-700 underline"
+                  >
+                    Wikimedia Commons
+                  </a>
+                  {imageAttribution.license ? ` · ${imageAttribution.license}` : ""}
+                </p>
+              )}
 
               <button
                 type="button"
@@ -2536,6 +2204,20 @@ function ProductImageUpload({
             </div>
           </div>
         </div>
+      )}
+      {!imagePreview && imageSearchStatus && (
+        <p className="mt-2 text-xs text-slate-600">{imageSearchStatus}</p>
+      )}
+      {imageSearchStatus && (
+        <button
+          type="button"
+          onClick={onSearchImage}
+          disabled={!hasProductName || imageSearching}
+          className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-blue-700 disabled:cursor-not-allowed disabled:text-slate-400"
+        >
+          <RefreshCw size={14} className={imageSearching ? "animate-spin" : ""} />
+          {imageSearching ? "Searching..." : "Search for another image"}
+        </button>
       )}
     </div>
   );
@@ -2577,37 +2259,11 @@ function CategoryField({ value, onChange }) {
             Select category
           </option>
 
-          <option value="Laptop">
-            Laptop
-          </option>
-
-          <option value="Smartphone">
-            Smartphone
-          </option>
-
-          <option value="Headphones">
-            Headphones
-          </option>
-
-          <option value="Smartwatch">
-            Smartwatch
-          </option>
-
-          <option value="Tablet">
-            Tablet
-          </option>
-
-          <option value="Electronics">
-            Electronics
-          </option>
-
-          <option value="Software">
-            Software
-          </option>
-
-          <option value="Other">
-            Other
-          </option>
+          {PRODUCT_CATEGORIES.map((category) => (
+            <option key={category} value={category}>
+              {category}
+            </option>
+          ))}
 
         </select>
 
@@ -2702,84 +2358,6 @@ function SummaryItem({ label, value }) {
       >
         {value || "Not provided"}
       </p>
-    </div>
-  );
-}
-
-// =========================================================
-// FEATURE
-// =========================================================
-
-function Feature({ text }) {
-  return (
-    <div className="flex items-center gap-2.5">
-
-      <CheckCircle2
-        size={16}
-        className="shrink-0 text-[#2563EB]"
-      />
-
-      <span
-        className="
-          text-xs
-          font-medium
-          text-[#334155]
-        "
-      >
-        {text}
-      </span>
-
-    </div>
-  );
-}
-
-// =========================================================
-// PROCESS STEP
-// =========================================================
-
-function ProcessStep({
-  number,
-  title,
-  active = false,
-}) {
-  return (
-    <div className="flex items-center gap-3">
-
-      <div
-        className={`
-          flex
-          h-9
-          w-9
-          shrink-0
-          items-center
-          justify-center
-          rounded-full
-          text-[10px]
-          font-bold
-          ${
-            active
-              ? "bg-[#2563EB] text-white"
-              : "bg-[#F1F5F9] text-[#64748B]"
-          }
-        `}
-      >
-        {number}
-      </div>
-
-      <span
-        className={`
-          text-xs
-          font-semibold
-          ${
-            active
-              ? "text-[#0F172A]"
-              : "text-[#64748B]"
-          }
-        `}
-      >
-        {title}
-      </span>
-
     </div>
   );
 }

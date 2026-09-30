@@ -119,6 +119,21 @@ const productSchema = new mongoose.Schema(
       default: "",
     },
 
+    productImageSourceUrl: {
+      type: String,
+      default: "",
+    },
+
+    productImageLicense: {
+      type: String,
+      default: "",
+    },
+
+    productImageArtist: {
+      type: String,
+      default: "",
+    },
+
     status: {
       type: String,
       default: "Active",

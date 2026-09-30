@@ -37,15 +37,24 @@ useEffect(() => {
 
       const data = await response.json();
 
-      const formattedProducts = data.map((product) => ({
-        name: product.productName,
-        id: product.productId,
-        warranty: `${product.warrantyPeriod} ${product.warrantyUnit.toLowerCase()}`,
-        status: product.status,
-        image: product.productImage,
-        gradient: "bg-[#E0EFFF]",
-        days: `${product.warrantyPeriod} ${product.warrantyUnit.toLowerCase()}`,
-      }));
+      const formattedProducts = data.map((product) => {
+        const warranty = product.warrantyPeriod
+          ? `${product.warrantyPeriod} ${(product.warrantyUnit || "Years").toLowerCase()}`
+          : "Not specified";
+        return {
+          ...product,
+          name: product.productName,
+          id: product.productId,
+          warranty,
+          status: product.status,
+          image: product.productImage,
+          imageSourceUrl: product.productImageSourceUrl,
+          imageLicense: product.productImageLicense,
+          imageArtist: product.productImageArtist,
+          gradient: "bg-[#E0EFFF]",
+          days: warranty,
+        };
+      });
 
       setProducts(formattedProducts);
     } catch (error) {
@@ -575,16 +584,16 @@ useEffect(() => {
                 </div>
 
 
-                <button
+                <Link
+                  to="/products"
                   className="
                     group
-                    hidden
+                    inline-flex
                     items-center
                     gap-1.5
                     text-sm
                     font-semibold
                     text-[#8B1E3F]
-                    sm:flex
                   "
                 >
                   View All
@@ -596,7 +605,7 @@ useEffect(() => {
                       group-hover:translate-x-1
                     "
                   />
-                </button>
+                </Link>
 
               </div>
 
@@ -821,9 +830,13 @@ function QuickAction({
 function ProductCard({ product }) {
 
   const isActive = product.status === "Active";
+  const productRouteId = product.productId || product._id;
 
   return (
-    <article
+    <Link
+      to={`/products/${encodeURIComponent(productRouteId)}`}
+      state={{ product }}
+      aria-label={`View details for ${product.name}`}
       className="
         group
         overflow-hidden
@@ -837,6 +850,9 @@ function ProductCard({ product }) {
         hover:-translate-y-2
         hover:border-[#F3DDE4]
         hover:shadow-[0_25px_60px_rgba(139,30,63,0.12)]
+        focus-visible:outline-2
+        focus-visible:outline-offset-2
+        focus-visible:outline-[#2563EB]
       "
     >
 
@@ -871,21 +887,28 @@ function ProductCard({ product }) {
           "
         />
 
-        <img
-  src={product.image}
-  alt={product.name}
-  className="
-    relative
-    h-[200px]
-    w-[200px]
-    object-contain
-    drop-shadow-[0_20px_20px_rgba(15,23,42,0.16)]
-    transition-all
-    duration-500
-    group-hover:-translate-y-2
-    group-hover:scale-110
-  "
-/>
+        {product.image ? (
+          <img
+            src={product.image}
+            alt={product.name}
+            className="
+              relative
+              h-[200px]
+              w-[200px]
+              object-contain
+              drop-shadow-[0_20px_20px_rgba(15,23,42,0.16)]
+              transition-all
+              duration-500
+              group-hover:-translate-y-2
+              group-hover:scale-110
+            "
+          />
+        ) : (
+          <div className="relative flex flex-col items-center gap-2 text-slate-400">
+            <Package size={35} strokeWidth={1.4} />
+            <span className="text-xs font-medium">No image added</span>
+          </div>
+        )}
 
 
         {/* Blockchain badge */}
@@ -921,6 +944,13 @@ function ProductCard({ product }) {
 
       </div>
 
+      {product.imageSourceUrl && (
+        <p className="mx-5 mt-2 truncate text-[10px] text-slate-500">
+          Image source: Wikimedia Commons
+          {product.imageLicense ? ` · ${product.imageLicense}` : ""}
+          {product.imageArtist ? ` · ${product.imageArtist}` : ""}
+        </p>
+      )}
 
       {/* Product details */}
 
@@ -951,7 +981,7 @@ function ProductCard({ product }) {
           </div>
 
 
-          <button
+          <span
             className="
               flex
               h-9
@@ -969,9 +999,10 @@ function ProductCard({ product }) {
               hover:bg-[#F3DDE4]
               hover:text-[#8B1E3F]
             "
+            aria-hidden="true"
           >
             <ExternalLink size={15} />
-          </button>
+          </span>
 
         </div>
 
@@ -1070,7 +1101,7 @@ function ProductCard({ product }) {
 
         {/* Passport button */}
 
-        <button
+        <span
           className="
             group/btn
             mt-4
@@ -1104,11 +1135,11 @@ function ProductCard({ product }) {
               group-hover/btn:translate-x-1
             "
           />
-        </button>
+        </span>
 
       </div>
 
-    </article>
+    </Link>
   );
 }
 

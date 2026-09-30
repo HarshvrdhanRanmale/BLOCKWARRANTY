@@ -64,6 +64,74 @@ const extractStructuredDataWithGroq = async (prompt, ocrText) => {
   return body.choices?.[0]?.message?.content || "{}";
 };
 
+const searchProductImage = async (productName, brand) => {
+  const productWords = productName.split(/\s+/).filter(Boolean);
+  const relevantTerms = [...brand.split(/\s+/), ...productWords]
+    .map((term) => term.toLowerCase().replace(/[^a-z0-9]/g, ""))
+    .filter((term) => term.length >= 2);
+  const searches = [
+    [brand, productName].filter(Boolean).join(" "),
+    productName,
+    ...productWords.slice(0, -1).map((_, index) =>
+      productWords.slice(0, productWords.length - index - 1).join(" ")
+    ),
+  ].filter((search, index, all) => search && all.indexOf(search) === index);
+
+  let match;
+  for (const search of searches) {
+    const url = new URL("https://commons.wikimedia.org/w/api.php");
+    url.search = new URLSearchParams({
+      action: "query",
+      generator: "search",
+      gsrsearch: search,
+      gsrnamespace: "6",
+      gsrlimit: "8",
+      prop: "imageinfo",
+      iiprop: "url|extmetadata",
+      iiurlwidth: "900",
+      format: "json",
+    }).toString();
+
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "BlockWarranty/1.0 (product image lookup)",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Wikimedia image search failed with status ${response.status}.`);
+    }
+
+    const result = await response.json();
+    const pages = Object.values(result?.query?.pages || {});
+    const matches = pages
+      .map((page) => ({ page, image: page.imageinfo?.[0] }))
+      .map((candidate) => {
+        const title = candidate.page.title.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const relevance = relevantTerms.filter((term) => title.includes(term)).length;
+        return { ...candidate, relevance };
+      })
+      .filter(({ image, relevance }) => image?.thumburl && relevance > 0)
+      .sort((left, right) => right.relevance - left.relevance);
+    match = matches[0];
+    if (match) break;
+  }
+
+  if (!match) return null;
+
+  const { page, image } = match;
+  const metadata = image.extmetadata || {};
+  return {
+    imageUrl: image.thumburl,
+    title: page.title.replace(/^File:/, ""),
+    sourceUrl: image.descriptionurl,
+    license: metadata.LicenseShortName?.value || "",
+    artist: metadata.Artist?.value?.replace(/<[^>]*>/g, "").trim() || "",
+  };
+};
+
 const normalizeStringValue = (value) => {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value.trim();
@@ -207,7 +275,7 @@ Extract only facts explicitly visible in the invoice.
 Rules:
 - Never guess, fabricate, calculate missing values, or assume a warranty.
 - If a value is absent, return an empty string.
-- category may be "Other" only if truly unknown.
+- Classify the product into exactly one of: Laptop, Smartphone, Headphones, Smartwatch, Tablet, Electronics, Software, Other. Use the product itself and its description to classify; use Other only when its type cannot reasonably be identified.
 - For numeric fields, return only the number as a plain string without currency symbols or commas.
 - For purchaseDate, return YYYY-MM-DD only if explicitly shown.
 - For warrantyPeriod, return only the numeric value without the unit.
@@ -289,6 +357,27 @@ res.json({
   }
 );
 
+app.get("/api/product-image", async (req, res) => {
+  const productName = normalizeStringValue(req.query.productName);
+  const brand = normalizeStringValue(req.query.brand);
+  if (!productName) {
+    return res.status(400).json({ message: "Product name is required for image search." });
+  }
+
+  try {
+    const image = await searchProductImage(productName.slice(0, 160), brand.slice(0, 100));
+    return res.json({
+      image,
+      message: image ? "Found a possible product image." : "No matching image was found.",
+    });
+  } catch (error) {
+    console.error("Product image lookup failed:", error.message);
+    return res.status(502).json({
+      message: "Product image search is temporarily unavailable. You can upload an image instead.",
+    });
+  }
+});
+
 // ======================================================
 // GENERATE PRODUCT ID
 // ======================================================
@@ -346,6 +435,13 @@ app.post(
       balanceDue: sanitizeOptionalNumber(payload.balanceDue),
       description: sanitizeOptionalText(payload.description),
       productImage: sanitizeOptionalText(payload.productImage),
+      productImageSourceUrl: /^https:\/\/commons\.wikimedia\.org\/wiki\/File:/i.test(
+        sanitizeOptionalText(payload.productImageSourceUrl)
+      )
+        ? sanitizeOptionalText(payload.productImageSourceUrl)
+        : "",
+      productImageLicense: sanitizeOptionalText(payload.productImageLicense),
+      productImageArtist: sanitizeOptionalText(payload.productImageArtist),
       invoiceFile: sanitizeOptionalText(payload.invoiceFile),
     };
 
@@ -376,6 +472,28 @@ app.post(
 // ======================================================
 // GET ALL PRODUCTS
 // ======================================================
+
+app.get("/api/products/:productId", async (req, res) => {
+  try {
+    const productIdentifier = normalizeStringValue(req.params.productId);
+    const lookup = [{ productId: productIdentifier }];
+    if (mongoose.isValidObjectId(productIdentifier)) {
+      lookup.push({ _id: productIdentifier });
+    }
+
+    const product = await Product.findOne({ $or: lookup });
+    if (!product) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+    return res.json({ product });
+  } catch (error) {
+    console.error("Product details retrieval error:", error);
+    return res.status(500).json({
+      message: "Failed to fetch product details.",
+      error: error.message,
+    });
+  }
+});
 
 app.get(
   "/api/products",
