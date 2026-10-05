@@ -28,13 +28,16 @@ const productSchema = new mongoose.Schema({
   invoiceFileName: { type: String, default: '', trim: true, maxlength: 255 },
   invoiceMimeType: { type: String, default: '', trim: true, maxlength: 80 },
   invoiceExtractedData: { type: mongoose.Schema.Types.Mixed, default: {} },
-  blockchainStatus: { type: String, enum: ['not_registered', 'confirmed'], default: 'not_registered' },
+  blockchainStatus: { type: String, enum: ['not_registered', 'pending', 'submitted', 'confirmed', 'failed'], default: 'not_registered' },
   blockchainTxHash: { type: String, default: '' },
   blockchainBlock: { type: Number, default: null },
   ownershipHistory: [{ from: { type: String, lowercase: true }, to: { type: String, lowercase: true }, transferredAt: Date, txHash: String }],
   status: { type: String, enum: ['Active', 'Expired', 'Transferred'], default: 'Active' }
 }, { timestamps: true, collection: 'products' });
 
-productSchema.index({ walletAddress: 1, createdAt: -1 });
+productSchema.index({ walletAddress: 1, createdAt: -1 });          // dashboard product list
+productSchema.index({ walletAddress: 1, status: 1 });               // filter by status
+productSchema.index({ blockchainStatus: 1 });                        // reconciliation queries
 
 module.exports = mongoose.models.Product || mongoose.model('Product', productSchema);
+

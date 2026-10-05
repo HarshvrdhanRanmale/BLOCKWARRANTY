@@ -14,8 +14,7 @@ import {
 import { Link } from "react-router-dom";
 import WorkspaceLayout from "../components/WorkspaceLayout";
 import { useAuthFlow } from "../auth/useAuthFlow";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+import { apiGet } from "../lib/api";
 
 function MyProducts() {
   const { token } = useAuthFlow();
@@ -31,26 +30,12 @@ function MyProducts() {
 
     const fetchProducts = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/products`, {
-          headers: { Authorization: `Bearer ${token || localStorage.getItem("blockwarranty_token") || ""}` },
-        });
-        const contentType = response.headers.get("content-type") || "";
-        if (!contentType.includes("application/json")) {
-          throw new Error("The product service returned an unexpected response.");
-        }
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.message || "Unable to load your products.");
-        }
-        if (!Array.isArray(data)) {
-          throw new Error("The product service returned invalid product data.");
-        }
+        const data = await apiGet("/api/products", token);
+        if (!Array.isArray(data)) throw new Error("The product service returned invalid data.");
         if (isMounted) setProducts(data);
       } catch (fetchError) {
         console.error("My Products load error:", fetchError);
-        if (isMounted) {
-          setError(fetchError.message || "Unable to load your products.");
-        }
+        if (isMounted) setError(fetchError.message || "Unable to load your products.");
       } finally {
         if (isMounted) setLoading(false);
       }
