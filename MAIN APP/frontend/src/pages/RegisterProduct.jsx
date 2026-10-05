@@ -10,6 +10,7 @@ import {
   Sparkles,
   X,
   RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 
 import { useEffect, useRef, useState } from "react";
@@ -99,6 +100,8 @@ function RegisterProduct() {
   const [imagePreview, setImagePreview] = useState("");
   const [imageSearchStatus, setImageSearchStatus] = useState("");
   const [imageAttribution, setImageAttribution] = useState(null);
+  const [availableImages, setAvailableImages] = useState([]);
+  const [isClosestMatch, setIsClosestMatch] = useState(false);
 
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -266,7 +269,7 @@ function RegisterProduct() {
       setCurrentStep(2);
 
       if (extracted.productName) {
-        void lookupProductImage(extracted.productName, extracted.brand || "");
+        void lookupProductImage(extracted.productName, extracted.brand || "", extracted.category || "");
       } else {
         setImageSearchStatus("Add a product name to search for an image.");
       }
@@ -301,6 +304,8 @@ function RegisterProduct() {
     setImagePreview("");
     setImageSearchStatus("");
     setImageAttribution(null);
+    setAvailableImages([]);
+    setIsClosestMatch(false);
     setFormData(createEmptyFormData());
     setCurrentStep(1);
     setErrorMessage("");
@@ -314,13 +319,18 @@ function RegisterProduct() {
   // PRODUCT IMAGE
   // =========================================================
 
-  const lookupProductImage = async (productName, brand) => {
+  const lookupProductImage = async (productName, brand, category = "") => {
     const requestId = ++imageSearchId.current;
-    setImageSearchStatus("Searching for a possible product image...");
+    setImageSearchStatus("Searching marketplaces for product photos...");
     setImageAttribution(null);
+    setAvailableImages([]);
 
     try {
-      const query = new URLSearchParams({ productName, brand });
+      const query = new URLSearchParams({
+        productName: productName || "",
+        brand: brand || "",
+        category: category || "",
+      });
       const response = await fetch(
         `${API_BASE_URL}/api/product-image?${query.toString()}`
       );
@@ -338,7 +348,11 @@ function RegisterProduct() {
 
       if (requestId !== imageSearchId.current) return;
 
-      if (!data.image?.imageUrl) {
+      const imagesList = Array.isArray(data.images) && data.images.length > 0
+        ? data.images
+        : (data.image ? [data.image] : []);
+
+      if (!data.image?.imageUrl && imagesList.length === 0) {
         if (formData.productImageSourceUrl) {
           setImagePreview("");
           setFormData((prev) => ({
@@ -347,25 +361,50 @@ function RegisterProduct() {
             productImageSourceUrl: "",
           }));
         }
+        setAvailableImages([]);
         setImageSearchStatus("No matching image found. You can upload one instead.");
         return;
       }
 
-      setImagePreview(data.image.imageUrl);
+      const best = data.image || imagesList[0];
+      setAvailableImages(imagesList);
+      setIsClosestMatch(Boolean(data.isClosestMatch));
+      setImagePreview(best.imageUrl);
       setFormData((prev) => ({
         ...prev,
-        productImage: data.image.imageUrl,
-        productImageSourceUrl: data.image.sourceUrl || "",
+        productImage: best.imageUrl,
+        productImageSourceUrl: best.sourceUrl || "",
       }));
-      setImageAttribution(data.image);
-      setImageSearchStatus("Possible match found. Verify it or upload a different image.");
+      setImageAttribution(best);
+      if (data.isClosestMatch) {
+        setImageSearchStatus(
+          `Showing closest matching marketplace photos (${imagesList.length} options). Select your favorite or upload your own.`
+        );
+      } else {
+        setImageSearchStatus(
+          imagesList.length > 1
+            ? `Found ${imagesList.length} matching photos from marketplaces. Best photo selected.`
+            : "Found matching product photo."
+        );
+      }
     } catch (error) {
       if (requestId !== imageSearchId.current) return;
       console.error("Product image search error:", error);
       setImageSearchStatus(
         error.message || "Image search failed. You can upload an image instead."
       );
+      setAvailableImages([]);
     }
+  };
+
+  const handleSelectImage = (img) => {
+    setImagePreview(img.imageUrl);
+    setFormData((prev) => ({
+      ...prev,
+      productImage: img.imageUrl,
+      productImageSourceUrl: img.sourceUrl || "",
+    }));
+    setImageAttribution(img);
   };
 
   const handleImageChange = (e) => {
@@ -523,6 +562,8 @@ function RegisterProduct() {
       setImagePreview("");
       setImageSearchStatus("");
       setImageAttribution(null);
+      setAvailableImages([]);
+      setIsClosestMatch(false);
       setCurrentStep(1);
       imageSearchId.current += 1;
 
@@ -1321,11 +1362,14 @@ function RegisterProduct() {
                         handleImageChange={handleImageChange}
                         imageSearchStatus={imageSearchStatus}
                         imageAttribution={imageAttribution}
+                        availableImages={availableImages}
+                        onSelectImage={handleSelectImage}
+                        isClosestMatch={isClosestMatch}
                         onSearchImage={() =>
-                          lookupProductImage(formData.productName, formData.brand)
+                          lookupProductImage(formData.productName, formData.brand, formData.category)
                         }
                         imageSearching={
-                          imageSearchStatus === "Searching for a possible product image..."
+                          imageSearchStatus.includes("Searching")
                         }
                         hasProductName={Boolean(formData.productName.trim())}
                       />
@@ -2125,33 +2169,27 @@ function ProductImageUpload({
   handleImageChange,
   imageSearchStatus,
   imageAttribution,
+  availableImages = [],
+  onSelectImage,
+  isClosestMatch,
   onSearchImage,
   imageSearching,
   hasProductName,
 }) {
   return (
-    <div className="md:col-span-2">
-
-      <label
-        className="
-          mb-2
-          block
-          text-sm
-          font-semibold
-        "
-      >
-        Product Image
-        <span
-          className="
-            ml-2
-            text-xs
-            font-medium
-            text-[#94A3B8]
-          "
-        >
-          Optional
-        </span>
-      </label>
+    <div className="md:col-span-2 space-y-3.5">
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-semibold text-[#0F172A]">
+          Product Image
+          <span className="ml-2 text-xs font-medium text-[#94A3B8]">Optional</span>
+        </label>
+        {availableImages.length > 1 && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-[#E0EFFF] px-2.5 py-0.5 text-xs font-semibold text-[#2563EB]">
+            <Sparkles size={12} />
+            {availableImages.length} Marketplace Photos Available
+          </span>
+        )}
+      </div>
 
       <input
         ref={imageInputRef}
@@ -2164,164 +2202,164 @@ function ProductImageUpload({
       {!imagePreview ? (
         <button
           type="button"
-          onClick={() =>
-            imageInputRef.current?.click()
-          }
-          className="
-            group
-            flex
-            min-h-[170px]
-            w-full
-            flex-col
-            items-center
-            justify-center
-            rounded-2xl
-            border-2
-            border-dashed
-            border-[#BFDBFE]
-            bg-[#F8FAFC]
-            hover:border-[#2563EB]
-            hover:bg-[#E0EFFF]/40
-          "
+          onClick={() => imageInputRef.current?.click()}
+          className="group flex min-h-[170px] w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#BFDBFE] bg-[#F8FAFC] p-6 transition-all hover:border-[#2563EB] hover:bg-[#E0EFFF]/40"
         >
-
-          <div
-            className="
-              mb-3
-              flex
-              h-12
-              w-12
-              items-center
-              justify-center
-              rounded-xl
-              bg-[#E0EFFF]
-              text-[#2563EB]
-            "
-          >
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#E0EFFF] text-[#2563EB] transition group-hover:scale-105">
             <Upload size={21} />
           </div>
-
-          <p className="text-sm font-semibold">
-            Upload Product Image
-          </p>
-
-          <p
-            className="
-              mt-1
-              text-xs
-              text-[#64748B]
-            "
-          >
-            PNG, JPG or WEBP • Max 5 MB
-          </p>
-
+          <p className="text-sm font-semibold text-[#0F172A]">Upload Product Image</p>
+          <p className="mt-1 text-xs text-[#64748B]">PNG, JPG or WEBP • Max 5 MB</p>
         </button>
       ) : (
-        <div
-          className="
-            rounded-2xl
-            border
-            border-[#BFDBFE]
-            bg-[#E0EFFF]
-            p-4
-          "
-        >
-
-          <div className="flex items-center gap-5">
-
-            <div
-              className="
-                flex
-                h-32
-                w-32
-                shrink-0
-                overflow-hidden
-                rounded-xl
-                bg-white
-              "
-            >
-              {imagePreview && (
-                <img
-                  src={imagePreview}
-                  alt="Product preview"
-                  className="
-                    h-full
-                    w-full
-                    object-contain
-                  "
-                />
+        <div className="overflow-hidden rounded-2xl border border-[#BFDBFE] bg-gradient-to-br from-[#E0EFFF]/40 via-white to-[#F8FAFC] p-4 sm:p-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-5">
+            {/* Active Preview */}
+            <div className="relative flex h-32 w-32 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white p-2 shadow-inner">
+              <img
+                src={imagePreview}
+                alt="Product preview"
+                className="h-full w-full object-contain"
+                onError={(e) => {
+                  if (imageAttribution?.thumbnailUrl && e.target.src !== imageAttribution.thumbnailUrl) {
+                    e.target.src = imageAttribution.thumbnailUrl;
+                  }
+                }}
+              />
+              {imageAttribution?.sourceLabel && (
+                <span className="absolute bottom-1 right-1 rounded bg-[#0F172A]/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white backdrop-blur-sm">
+                  {imageAttribution.sourceLabel}
+                </span>
               )}
             </div>
 
-            <div>
-
-              <div className="flex items-center gap-2">
-
-                <CheckCircle2
-                  size={17}
-                  className="text-[#16A34A]"
-                />
-
-                <p className="text-sm font-semibold">
-                  {imageAttribution ? "Suggested image found" : "Product image selected"}
+            {/* Details & Actions */}
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <CheckCircle2 size={17} className="text-[#16A34A] shrink-0" />
+                <p className="text-sm font-bold text-[#0F172A] truncate">
+                  {imageAttribution
+                    ? (isClosestMatch ? "Closest Marketplace Match" : "Marketplace Photo Selected")
+                    : "Product Image Selected"}
                 </p>
-
+                {imageAttribution?.isMarketplace && (
+                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
+                    Verified Seller
+                  </span>
+                )}
               </div>
 
-              {imageSearchStatus && (
-                <p className="mt-1 max-w-md text-xs text-slate-600">
-                  {imageSearchStatus}
+              {imageAttribution?.title && (
+                <p className="mt-1 text-xs text-[#475569] line-clamp-2" title={imageAttribution.title}>
+                  {imageAttribution.title}
                 </p>
               )}
 
               {imageAttribution?.sourceUrl && (
-                <p className="mt-1 text-xs text-slate-500">
-                  Source:{" "}
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[#64748B]">
+                  <span>Source:</span>
                   <a
                     href={imageAttribution.sourceUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-blue-700 underline"
+                    className="inline-flex items-center gap-1 font-semibold text-[#2563EB] hover:text-[#1D4EDB] underline truncate max-w-xs"
                   >
-                    Wikimedia Commons
+                    <span>{imageAttribution.sourceLabel || imageAttribution.domain || "Marketplace"}</span>
+                    <ExternalLink size={11} className="shrink-0" />
                   </a>
-                  {imageAttribution.license ? ` · ${imageAttribution.license}` : ""}
                 </p>
               )}
 
-              <button
-                type="button"
-                onClick={() =>
-                  imageInputRef.current?.click()
-                }
-                className="
-                  mt-2
-                  text-xs
-                  font-semibold
-                  text-[#2563EB]
-                "
-              >
-                Change image
-              </button>
-
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#334155] shadow-sm transition hover:bg-slate-50 hover:border-slate-300"
+                >
+                  Upload your own photo
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
-      {!imagePreview && imageSearchStatus && (
-        <p className="mt-2 text-xs text-slate-600">{imageSearchStatus}</p>
+
+      {/* MULTIPLE ALTERNATIVE MARKETPLACE IMAGES */}
+      {availableImages.length > 1 && (
+        <div className="rounded-2xl border border-slate-200 bg-[#F8FAFC] p-3.5 sm:p-4">
+          <div className="mb-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Sparkles size={14} className="text-[#2563EB]" />
+              <p className="text-xs font-bold text-[#0F172A]">
+                Available Marketplace Photos ({availableImages.length}):
+              </p>
+            </div>
+            <span className="text-[11px] text-[#64748B]">
+              Click any photo to select
+            </span>
+          </div>
+
+          <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+            {availableImages.map((img, idx) => {
+              const isSelected = img.imageUrl === imagePreview;
+              return (
+                <button
+                  key={`${img.imageUrl}-${idx}`}
+                  type="button"
+                  onClick={() => onSelectImage?.(img)}
+                  className={`group relative flex flex-col items-center justify-center rounded-xl border bg-white p-1.5 transition-all ${
+                    isSelected
+                      ? "border-[#2563EB] ring-2 ring-[#2563EB] shadow-md scale-105"
+                      : "border-slate-200 hover:border-[#2563EB]/60 hover:shadow-sm opacity-85 hover:opacity-100"
+                  }`}
+                  title={`${img.title || "Product photo"} (${img.sourceLabel || "Marketplace"})`}
+                >
+                  <div className="relative h-16 w-full overflow-hidden rounded-lg bg-slate-50 flex items-center justify-center">
+                    <img
+                      src={img.imageUrl || img.thumbnailUrl}
+                      alt={img.title || "Product thumbnail"}
+                      className="h-full w-full object-contain"
+                      onError={(e) => {
+                        if (img.thumbnailUrl && e.target.src !== img.thumbnailUrl) {
+                          e.target.src = img.thumbnailUrl;
+                        }
+                      }}
+                    />
+                    {isSelected && (
+                      <div className="absolute top-1 right-1 rounded-full bg-[#2563EB] p-0.5 text-white shadow">
+                        <CheckCircle2 size={12} strokeWidth={3} />
+                      </div>
+                    )}
+                  </div>
+                  <span className="mt-1 block w-full truncate text-[10px] font-semibold text-[#475569] text-center">
+                    {idx === 0 ? "★ Best" : (img.sourceLabel || `#${idx + 1}`)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
-      {imageSearchStatus && (
+
+      {/* SEARCH STATUS & RE-SEARCH BUTTON */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        {imageSearchStatus ? (
+          <p className="text-xs text-[#64748B] flex items-center gap-1.5">
+            <Info size={13} className="text-[#2563EB] shrink-0" />
+            <span>{imageSearchStatus}</span>
+          </p>
+        ) : <div />}
+
         <button
           type="button"
           onClick={onSearchImage}
           disabled={!hasProductName || imageSearching}
-          className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-blue-700 disabled:cursor-not-allowed disabled:text-slate-400"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#2563EB] shadow-sm transition hover:bg-slate-50 hover:border-[#BFDBFE] disabled:cursor-not-allowed disabled:text-slate-400"
         >
-          <RefreshCw size={14} className={imageSearching ? "animate-spin" : ""} />
-          {imageSearching ? "Searching..." : "Search for another image"}
+          <RefreshCw size={13} className={imageSearching ? "animate-spin" : ""} />
+          <span>{imageSearching ? "Searching marketplaces..." : "Re-search photos"}</span>
         </button>
-      )}
+      </div>
     </div>
   );
 }

@@ -111,72 +111,28 @@ app.use('/api/products/:productId/services', serviceRoutes);
 app.use('/api/products/:productId/blockchain', blockchainRoutes);
 app.use('/api/products', productRoutes);
 
-// Search DuckDuckGo Images directly using the brand/model extracted by Groq.
+// Multi-engine marketplace product image search
+const { searchProductImages } = require('./services/imageSearchService');
+
 app.get('/api/product-image', async (req, res) => {
-  const productName = String(req.query.productName || '').trim().slice(0, 160);
+  const productName = String(req.query.productName || '').trim().slice(0, 200);
   const brand = String(req.query.brand || '').trim().slice(0, 100);
+  const category = String(req.query.category || '').trim().slice(0, 50);
+
   if (!productName) {
     return res.status(400).json({ message: 'Product name is required for image search.' });
   }
 
   try {
-    const query = [...new Set([brand, productName].filter(Boolean))].join(' ');
-    const headers = { 'User-Agent': 'Mozilla/5.0 (compatible; BlockWarranty/1.0)', Accept: 'text/html,application/json' };
-    const landingUrl = new URL('https://duckduckgo.com/');
-    landingUrl.search = new URLSearchParams({ q: query, iax: 'images', ia: 'images' }).toString();
-    const landingResponse = await fetch(landingUrl, { headers, signal: AbortSignal.timeout(8000) });
-    if (!landingResponse.ok) throw new Error(`Image search returned ${landingResponse.status}`);
-    const landingPage = await landingResponse.text();
-    const vqd = landingPage.match(/vqd="([^"]+)"/)?.[1];
-    if (!vqd) throw new Error('Image search did not return a search token.');
-
-    const imageSearchUrl = new URL('https://duckduckgo.com/i.js');
-    imageSearchUrl.search = new URLSearchParams({ q: query, o: 'json', p: '1', vqd, l: 'us-en' }).toString();
-    const imageResponse = await fetch(imageSearchUrl, { headers, signal: AbortSignal.timeout(10000) });
-    if (!imageResponse.ok) throw new Error(`Image results returned ${imageResponse.status}`);
-    const imageResults = await imageResponse.json();
-
-    const normalize = (value) => String(value || '').replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&#x27;/g, "'").replace(/&quot;/g, '"').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-    const brandTerms = new Set(normalize(brand).split(/\s+/).filter(Boolean));
-    const rawTerms = normalize(productName).split(/\s+/).filter((term) => term.length > 1 && !brandTerms.has(term));
-    const ignoredSpecs = new Set(['gb', 'tb', 'mb', 'inch', 'inches', 'storage', 'black', 'white', 'silver', 'gold', 'starlight', 'gray', 'grey', 'blue', 'red', 'green', 'pink', 'purple', 'midnight']);
-    const terms = rawTerms.filter((term, index) => {
-      if (ignoredSpecs.has(term)) return false;
-      if (/^\d+$/.test(term) && ['gb', 'tb', 'mb'].includes(rawTerms[index + 1])) return false;
-      return true;
-    });
-    const variantTerms = ['pro', 'max', 'mini', 'plus', 'ultra', 'air', 'lite', 'fe'];
-    const candidates = (imageResults.results || []).map((result) => {
-      const titleTerms = new Set(normalize(result.title).split(/\s+/));
-      const matched = terms.filter((term) => titleTerms.has(term));
-      const wrongVariant = variantTerms.some((variant) => titleTerms.has(variant) && !terms.includes(variant));
-      const hasModelNumber = terms.some((term) => /\d/.test(term));
-      const preciseMatch = !wrongVariant && (hasModelNumber
-        ? terms.filter((term) => /\d/.test(term)).every((term) => titleTerms.has(term)) && matched.some((term) => !/\d/.test(term))
-        : matched.length >= Math.min(2, terms.length));
-      return { result, score: matched.length, preciseMatch };
-    })
-      .filter(({ result, preciseMatch }) => preciseMatch && /^https:\/\//i.test(result.image || result.thumbnail || ''))
-      .sort((a, b) => b.score - a.score);
-
-    const match = candidates[0]?.result;
-    if (match) {
-      return res.json({
-        message: 'Found a matching product image.',
-        image: {
-          imageUrl: match.image || match.thumbnail,
-          title: match.title || productName,
-          sourceUrl: /^https:\/\//i.test(match.url || '') ? match.url : '',
-          license: '',
-          artist: ''
-        }
-      });
-    }
-
-    return res.json({ image: null, message: 'No matching image was found.' });
+    const result = await searchProductImages({ productName, brand, category });
+    return res.json(result);
   } catch (error) {
     console.error('Product image lookup failed:', error.message);
-    return res.status(502).json({ message: 'Product image search is temporarily unavailable. You can upload an image instead.' });
+    return res.status(502).json({
+      message: 'Product image search is temporarily unavailable. You can upload an image instead.',
+      image: null,
+      images: []
+    });
   }
 });
 
