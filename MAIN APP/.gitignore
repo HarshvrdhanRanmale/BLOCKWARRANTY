@@ -1,0 +1,5 @@
+backend/.env
+frontend/.env
+backend/chain-data/
+backend/chain-data-demo/
+frontend/.env.local

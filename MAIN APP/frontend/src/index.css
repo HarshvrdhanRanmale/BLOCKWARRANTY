@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+:root {
+  --color-primary-blue: #2563eb;
+  --color-dark-blue: #1d4ed8;
+  --color-light-blue: #e0efff;
+  --color-page-background: #f8fafc;
+  --color-primary-graphite: #0f172a;
+  --color-signature-burgundy: #2563eb;
+  --color-soft-rose: #e0efff;
+  --color-warm-cream: #f8fafc;
+  --color-soft-gray: #6b7280;
+  --color-neutral-border: #e2e8f0;
+  --color-success-green: #16a34a;
+  --color-warning-amber: #d97706;
+  --color-error-red: #dc2626;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, "Segoe UI", sans-serif;
+  background: var(--color-page-background);
+  color: var(--color-primary-graphite);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: rgba(37, 99, 235, 0.2);
+}
+
+/*
+ * The page components use Tailwind arbitrary colors for their visual states.
+ * Keep these aliases here so the palette remains consistent across all routes,
+ * including states rendered by shared components.
+ */
+[class*="bg-[#8B1E3F]"],
+[class*="bg-[#8b1e3f]"] {
+  background-color: var(--color-primary-blue) !important;
+}
+
+[class*="bg-[#F3DDE4]"],
+[class*="bg-[#f3dde4]"] {
+  background-color: var(--color-light-blue) !important;
+}
+
+[class*="bg-[#F5F1EC]"],
+[class*="bg-[#f5f1ec]"] {
+  background-color: var(--color-page-background) !important;
+}
+
+[class*="border-[#E5E0DA]"],
+[class*="border-[#e5e0da]"] {
+  border-color: var(--color-neutral-border) !important;
+}
+
+[class*="text-[#8B1E3F]"],
+[class*="text-[#8b1e3f]"] {
+  color: var(--color-primary-blue) !important;
+}
+
+[class*="text-[#171717]"],
+[class*="text-[#0F172A]"],
+[class*="text-[#0f172a]"] {
+  color: var(--color-primary-graphite) !important;
+}
+
+[class*="hover:bg-[#8B1E3F]"]:hover,
+[class*="hover:bg-[#8b1e3f]"]:hover {
+  background-color: var(--color-dark-blue) !important;
+}
+
+[class*="hover:bg-[#171717]"]:hover {
+  background-color: var(--color-dark-blue) !important;
+}
+
+[class*="hover:bg-[#F3DDE4]"]:hover,
+[class*="hover:bg-[#f3dde4]"]:hover {
+  background-color: var(--color-light-blue) !important;
+}
+
+[class*="hover:border-[#8B1E3F]"]:hover,
+[class*="hover:border-[#8b1e3f]"]:hover {
+  border-color: var(--color-primary-blue) !important;
+}
+
+[class*="hover:text-[#8B1E3F]"]:hover,
+[class*="hover:text-[#8b1e3f]"]:hover {
+  color: var(--color-primary-blue) !important;
+}

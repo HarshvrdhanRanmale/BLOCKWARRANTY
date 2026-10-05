@@ -1,0 +1,39 @@
+# Node modules
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+dist-release/
+build/
+
+# Environment files — never commit secrets
+.env
+**/.env
+*.env.local
+*.env.*.local
+
+# Hardhat local artifacts (keep contract ABIs, skip cache)
+cache/
+.hardhat_cache/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# client has its own git history — exclude from root repo
+client/
+
+# Misc
+coverage/
+.nyc_output/

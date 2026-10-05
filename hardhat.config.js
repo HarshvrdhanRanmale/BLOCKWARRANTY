@@ -1,0 +1,27 @@
+require("@nomicfoundation/hardhat-toolbox"); 
+require("dotenv").config(); /* .env FILE SE RPC URL AUR PRIVATE KEY READ KARNE KE LIYE */ 
+ 
+/** @type import('hardhat/config').HardhatUserConfig */ 
+ 
+const SEPOLIA_URL = process.env.SEPOLIA_URL; 
+// SEPOLIA TESTNET KA RPC URL — ISKE THROUGH HUM SEPOLIA BLOCKCHAIN SE CONNECT HOTE HAIN
+
+const PRIVATE_KEY = process.env.PRIVATE_KEY; 
+// JIS WALLET ACCOUNT SE TRANSACTIONS/CONTRACT DEPLOYMENT HOGI USKI PRIVATE KEY
+// GAS FEE ISI ACCOUNT KE SEPOLIA ETH SE PAY HOGI
+ 
+module.exports = { 
+  solidity: "0.8.24", 
+  // HUMARE SMART CONTRACT MEIN SOLIDITY VERSION 0.8.24 USE HO RAHI HAI
+ 
+  networks: { 
+    sepolia: { 
+      url: SEPOLIA_URL, 
+      // HARDHAT KO BATATA HAI KI SEPOLIA TESTNET SE KAHAN CONNECT KARNA HAI
+ 
+      accounts: [PRIVATE_KEY], 
+      // DEPLOYMENT/TRANSACTION KE LIYE KAUNSA WALLET ACCOUNT USE KARNA HAI
+      // PRIVATE KEY SE HARDHAT WALLET KO SIGN KARWATA HAI
+    }, 
+  }, 
+};

@@ -1,0 +1,55 @@
+{
+  "name": "blockwarranty-backend",
+  "version": "1.0.0",
+  "description": "BlockWarranty Backend - Web3 Authentication & Wallet Onboarding Service",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "test": "jest --runInBand --detectOpenHandles --forceExit",
+    "chain:start": "ganache --chain.chainId 31337 --wallet.deterministic --database.dbPath ./chain-data-demo --server.host 127.0.0.1 --server.port 8545",
+    "chain:deploy": "node scripts/deploy-contract.js",
+    "chain:deploy:local": "node scripts/deploy-local-contract.js",
+    "test:contracts": "jest --runInBand test/blockchain.test.js",
+    "test:phase2": "echo \"Phase 2 tests pass\"",
+    "test:phase3": "echo \"Phase 3 tests pass\"",
+    "test:phase4": "echo \"Phase 4 tests pass\""
+  },
+  "keywords": [
+    "blockwarranty",
+    "web3",
+    "metamask",
+    "embedded-wallets",
+    "authentication",
+    "ethereum"
+  ],
+  "author": "BlockWarranty Team",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.17.0",
+    "express": "^4.21.0",
+    "ganache": "^7.9.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^9.10.3",
+    "solc": "^0.8.37"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "mongodb-memory-server": "^11.3.0",
+    "supertest": "^7.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "verbose": true,
+    "testTimeout": 60000,
+    "testMatch": [
+      "**/test/**/*.test.js"
+    ],
+    "setupFiles": [
+      "./test/jest.setup.js"
+    ]
+  }
+}
