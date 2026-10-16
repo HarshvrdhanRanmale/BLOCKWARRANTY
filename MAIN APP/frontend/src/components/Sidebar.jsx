@@ -1,5 +1,4 @@
 import {
-  LayoutDashboard,
   Package,
   Plus,
   Repeat2,
@@ -7,6 +6,7 @@ import {
   ChevronRight,
   ShieldCheck,
   LogOut,
+  X,
 } from "lucide-react";
 
 import { NavLink, useNavigate } from "react-router-dom";
@@ -21,11 +21,6 @@ function Sidebar({
   const navigate = useNavigate();
   const { logout } = useAuthFlow();
   const menuItems = [
-    {
-      name: "Dashboard",
-      icon: LayoutDashboard,
-      path: "/dashboard",
-    },
     {
       name: "My Products",
       icon: Package,
@@ -56,19 +51,23 @@ function Sidebar({
         group/sidebar
         fixed
         left-0
-        ${topOffset === 0 ? "top-0 h-screen" : "top-[76px] h-[calc(100vh-76px)]"}
+        ${topOffset === 0 ? "top-0 h-screen" : "top-0 md:top-[76px] h-screen md:h-[calc(100vh-76px)]"}
         bottom-0
-        z-40
+        z-50
         overflow-hidden
         border-r
         border-[#E5E0DA]
-        bg-[#F5F1EC]/95
+        bg-[#F5F1EC]/98
         backdrop-blur-2xl
-        shadow-[8px_0_35px_rgba(23,25,28,0.04)]
-        transition-[width]
-        duration-500
+        shadow-[8px_0_35px_rgba(23,25,28,0.08)]
+        transition-all
+        duration-300
         ease-[cubic-bezier(0.22,1,0.36,1)]
-        ${isExpanded ? "w-[280px]" : "w-[88px]"}
+        ${
+          isExpanded
+            ? "translate-x-0 w-[280px]"
+            : "-translate-x-full md:translate-x-0 md:w-[88px] w-[280px]"
+        }
       `}
     >
       <div
@@ -84,31 +83,43 @@ function Sidebar({
         "
       >
         {showBrand && (
-          <button
-            type="button"
-            data-sidebar-brand
-            aria-label={`${isExpanded ? "Close" : "Open"} sidebar`}
-            aria-expanded={isExpanded}
-            title={isExpanded ? "Close sidebar" : "Open sidebar"}
-            onClick={onToggle}
-            className={`mb-5 flex h-16 w-full shrink-0 items-center rounded-2xl text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] ${
-              isExpanded ? "justify-start gap-3" : "justify-center"
-            }`}
-          >
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)]">
-              <ShieldCheck size={25} strokeWidth={2.2} />
-            </span>
-            {isExpanded && (
-              <span className="min-w-0">
-                <span className="block whitespace-nowrap text-lg font-extrabold tracking-tight text-[#0F172A]">
-                  BlockWarranty
-                </span>
-                <span className="block whitespace-nowrap text-[8px] font-medium uppercase tracking-[0.18em] text-[#64748B]">
-                  Products. People. Protected.
-                </span>
+          <div className="mb-5 flex h-16 w-full shrink-0 items-center justify-between">
+            <button
+              type="button"
+              data-sidebar-brand
+              aria-label={`${isExpanded ? "Close" : "Open"} sidebar`}
+              aria-expanded={isExpanded}
+              title={isExpanded ? "Close sidebar" : "Open sidebar"}
+              onClick={onToggle}
+              className={`flex h-16 items-center rounded-2xl text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] ${
+                isExpanded ? "justify-start gap-3" : "justify-center w-full"
+              }`}
+            >
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)]">
+                <ShieldCheck size={25} strokeWidth={2.2} />
               </span>
+              {isExpanded && (
+                <span className="min-w-0">
+                  <span className="block whitespace-nowrap text-lg font-extrabold tracking-tight text-[#0F172A]">
+                    BlockWarranty
+                  </span>
+                  <span className="block whitespace-nowrap text-[8px] font-medium uppercase tracking-[0.18em] text-[#64748B]">
+                    Products. People. Protected.
+                  </span>
+                </span>
+              )}
+            </button>
+            {isExpanded && (
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-label="Close sidebar"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-200/50 hover:text-slate-700 md:hidden"
+              >
+                <X size={18} />
+              </button>
             )}
-          </button>
+          </div>
         )}
 
         {/* ================================

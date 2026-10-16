@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import Landing from "./pages/Landing";
-import Dashboard from "./pages/Dashboard";
 import RegisterProduct from "./pages/RegisterProduct";
 import Register from "./pages/Register";
 import ConnectWallet from "./pages/ConnectWallet";
@@ -24,7 +23,7 @@ function App() {
             <Route path="/login" element={<ConnectWallet />} />
             <Route path="/connect-wallet" element={<ConnectWallet />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Navigate to="/products" replace />} />
             <Route path="/products" element={<MyProducts />} />
             <Route path="/products/:productId" element={<ProductDetails />} />
             <Route path="/transfer-ownership" element={<TransferOwnership />} />

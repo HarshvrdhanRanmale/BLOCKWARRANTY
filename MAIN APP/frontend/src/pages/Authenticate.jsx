@@ -69,7 +69,7 @@ export default function Authenticate() {
       await linkGoogleProfile(response.credential);
       setShowProfileSetup(false);
       setAuthenticationStatus("success");
-      navigate("/dashboard", { replace: true });
+      navigate("/products", { replace: true });
     } catch (err) {
       setError(err.message || "Failed to link Google with your wallet profile.");
     } finally {
@@ -109,7 +109,7 @@ export default function Authenticate() {
   }, [showProfileSetup, googleClientId, handleGoogleSuccess]);
   useEffect(() => {
     if (authenticationStatus === "success" && !showProfileSetup) {
-      const timer = window.setTimeout(() => navigate("/dashboard", { replace: true }), 1000);
+      const timer = window.setTimeout(() => navigate("/products", { replace: true }), 1000);
       return () => window.clearTimeout(timer);
     }
     return undefined;
@@ -197,7 +197,7 @@ export default function Authenticate() {
             {user?.name ? `Welcome back, ${user.name}!` : "Account confirmed"}
           </h3>
           <p className="mt-2 text-sm text-[#64748B]">
-            Welcome to BlockWarranty. Taking you to your dashboard...
+            Welcome to BlockWarranty. Taking you to your products...
           </p>
         </div>
       ) : authenticationStatus === "error" ? (

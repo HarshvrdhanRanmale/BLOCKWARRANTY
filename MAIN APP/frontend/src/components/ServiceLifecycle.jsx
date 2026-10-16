@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { FileText, Plus, RefreshCw, Wrench, X } from 'lucide-react';
 import { sendWalletTransaction } from '../auth/walletService';
+import UniversalDocumentUpload from './UniversalDocumentUpload';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const MIME_BY_EXTENSION = {
@@ -19,6 +20,7 @@ export default function ServiceLifecycle({ product, token, walletAddress }) {
   const [history, setHistory] = useState({ services: [], warrantyClaims: [] });
   const [kind, setKind] = useState('');
   const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState('');
   const [fileType, setFileType] = useState('');
   const [fileData, setFileData] = useState('');
   const [extracted, setExtracted] = useState({});
@@ -40,16 +42,17 @@ export default function ServiceLifecycle({ product, token, walletAddress }) {
     return () => { active = false; };
   }, [product.productId, token, refresh]);
 
-  const selectFile = (selected) => {
+  const selectFile = (selected, previewUrl) => {
     setError(''); setNotice(''); setFile(selected || null); setFileData(''); setExtracted({}); setValues({});
-    if (!selected) { setFileData(''); setFileType(''); return; }
+    if (!selected) { setFileData(''); setFileType(''); setPreview(''); return; }
     const extension = selected.name.split('.').pop()?.toLowerCase() || '';
     const browserType = selected.type === 'image/jpg' ? 'image/jpeg' : selected.type;
     const normalizedType = Object.values(MIME_BY_EXTENSION).includes(browserType) ? browserType : (MIME_BY_EXTENSION[extension] || browserType || 'application/octet-stream');
     if (selected.size > MAX_DOCUMENT_BYTES) {
-      setError('Service document must be 15 MB or smaller.'); setFile(null); setFileType(''); return;
+      setError('Service document must be 15 MB or smaller.'); setFile(null); setFileType(''); setPreview(''); return;
     }
     setFileType(normalizedType);
+    setPreview(previewUrl || '');
     const reader = new FileReader();
     reader.onload = () => setFileData(String(reader.result).split(',')[1] || '');
     reader.onerror = () => setError('Could not read this file. Please choose it again.');
@@ -57,31 +60,16 @@ export default function ServiceLifecycle({ product, token, walletAddress }) {
   };
 
   const extract = async () => {
-    if (!fileData || !file) return setError('Upload a service bill image first.');
+    if (!fileData || !file) return setError('Upload a service bill first.');
     setExtracting(true); setError(''); setNotice('');
     try {
-      let imageData = fileData;
-      let imageType = fileType;
-      if (!['image/jpeg', 'image/png', 'image/webp'].includes(imageType)) {
-        if (!imageType.startsWith('image/')) throw new Error('This document will be saved privately, but automatic extraction is available for images only. Fill in the fields manually to continue.');
-        let bitmap;
-        try { bitmap = await createImageBitmap(file); } catch { throw new Error('This image format can be attached, but your browser could not convert it for automatic extraction. Fill in the details manually to continue.'); }
-        const canvas = document.createElement('canvas');
-        const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
-        canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-        canvas.getContext('2d').drawImage(bitmap, 0, 0);
-        bitmap.close?.();
-        const converted = await new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Could not prepare the image for extraction.')), 'image/jpeg', 0.92));
-        imageData = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1] || ''); reader.onerror = reject; reader.readAsDataURL(converted); });
-        imageType = 'image/jpeg';
-      }
       const response = await fetch(`${API_BASE}/api/products/${encodeURIComponent(product.productId)}/services/extract`, {
         method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData: imageData, fileType: imageType, fileName: file.name })
+        body: JSON.stringify({ fileData, fileType, fileName: file.name })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || result.error || 'Extraction failed. You can still fill the form manually.');
-      setExtracted(result.extractedData || {}); setValues(result.extractedData || {});
+      setExtracted(result.extractedData || {}); setValues((v) => ({ ...v, ...(result.extractedData || {}) }));
       setNotice('Review and correct all values. AI extraction is only a draft.');
     } catch (e) { setError(e.message); }
     finally { setExtracting(false); }
@@ -153,14 +141,21 @@ export default function ServiceLifecycle({ product, token, walletAddress }) {
 
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
           <section aria-label="Attach service document">
-            <div className="mb-2 flex items-center justify-between gap-3"><div><h4 className="text-sm font-bold text-slate-900">Service document <span className="font-medium text-red-500">Required</span></h4><p className="mt-0.5 text-xs text-slate-500">Your file stays private and is never uploaded to the blockchain.</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500">Up to 15 MB</span></div>
-            <input id="service-document-upload" type="file" required onChange={(e) => selectFile(e.target.files?.[0])} className="sr-only" />
-            <label htmlFor="service-document-upload" className="group flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/60 px-4 py-6 text-center transition hover:border-blue-400 hover:bg-blue-50 sm:flex-row sm:gap-4 sm:text-left">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-blue-700 shadow-sm"><FileText size={22} /></span>
-              <span className="mt-3 min-w-0 flex-1 sm:mt-0">{file ? <><span className="block break-all text-sm font-bold text-slate-800">{file.name}</span><span className="mt-1 block text-xs text-slate-500">{formatFileSize(file.size)} · Select to replace</span></> : <><span className="block text-sm font-bold text-slate-800">Choose a bill, invoice, or service document</span><span className="mt-1 block text-xs text-slate-500">Images and common document formats · 15 MB maximum</span></>}</span>
-              <span className="mt-4 inline-flex shrink-0 items-center rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-xs font-bold text-blue-700 shadow-sm group-hover:border-blue-300 sm:mt-0">{file ? 'Replace file' : 'Choose file'}</span>
-            </label>
-            {file && <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5"><p className="text-xs leading-5 text-slate-500">{fileType.startsWith('image/') ? 'You can extract a first draft from this image, then review the fields below.' : 'Document attached. Enter the details below manually.'}</p>{fileType.startsWith('image/') && <button type="button" onClick={extract} disabled={extracting || !fileData} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-800 disabled:opacity-50"><RefreshCw size={13} className={extracting ? 'animate-spin' : ''} />{extracting ? 'Reading image…' : 'Extract details'}</button>}</div>}
+            <UniversalDocumentUpload
+              file={file}
+              preview={preview}
+              onFileSelect={(selectedFile, previewUrl) => selectFile(selectedFile, previewUrl)}
+              onRemove={() => selectFile(null)}
+              onExtract={extract}
+              extracting={extracting}
+              extractionError=""
+              extractionSuccess={Boolean(Object.keys(extracted).length)}
+              label="Attach service bill or repair receipt"
+              description="Drop, browse, or paste (Ctrl+V) an invoice, receipt, or service report (JPG, PNG, WebP, HEIC, PDF up to 15 MB). Document remains strictly private."
+              maxSizeMB={15}
+              isService={true}
+              showExtractButton={Boolean(file)}
+            />
           </section>
 
           <section>

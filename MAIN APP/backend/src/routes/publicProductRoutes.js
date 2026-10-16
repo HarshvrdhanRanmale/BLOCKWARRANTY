@@ -88,19 +88,9 @@ function addWarrantyPeriod(start, period, unit) {
   const expiry = new Date(start);
   if (unit === 'Days') expiry.setUTCDate(expiry.getUTCDate() + period);
   else if (unit === 'Months') {
-    const day = expiry.getUTCDate();
-    expiry.setUTCDate(1);
-    expiry.setUTCMonth(expiry.getUTCMonth() + period);
-    const lastDay = new Date(Date.UTC(expiry.getUTCFullYear(), expiry.getUTCMonth() + 1, 0)).getUTCDate();
-    expiry.setUTCDate(Math.min(day, lastDay));
+    expiry.setTime(expiry.getTime() + period * 30 * 86400 * 1000);
   } else if (unit === 'Years') {
-    const month = expiry.getUTCMonth();
-    const day = expiry.getUTCDate();
-    expiry.setUTCDate(1);
-    expiry.setUTCFullYear(expiry.getUTCFullYear() + period);
-    expiry.setUTCMonth(month);
-    const lastDay = new Date(Date.UTC(expiry.getUTCFullYear(), month + 1, 0)).getUTCDate();
-    expiry.setUTCDate(Math.min(day, lastDay));
+    expiry.setTime(expiry.getTime() + period * 365 * 86400 * 1000);
   }
   return Number.isNaN(expiry.getTime()) ? null : expiry.toISOString();
 }
@@ -139,8 +129,6 @@ function publicOwnershipHistory(product) {
     .filter((entry) => entry && entry.txHash)
     .map((entry) => ({
       date: isoDate(entry.transferredAt),
-      fromWallet: entry.from || null,
-      toWallet: entry.to || null,
       title: 'Ownership transferred on-chain',
       txHash: entry.txHash,
     }))
@@ -151,7 +139,7 @@ function publicTimeline(product, warranty, serviceHistory = []) {
   const registeredAt = isoDate(warranty.registeredAt) || isoDate(product.createdAt);
   return [
     ...publicOwnershipHistory(product),
-    ...serviceHistory.filter((item) => item.blockchainStatus === 'confirmed').map((item) => ({
+    ...serviceHistory.filter((item) => item.blockchainStatus === 'confirmed' || item.txHash).map((item) => ({
       type: item.type,
       date: isoDate(item.date),
       title: item.type === 'warranty-claim'

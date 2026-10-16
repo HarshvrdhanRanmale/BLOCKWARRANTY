@@ -133,6 +133,20 @@ async function attemptAutomaticTransfer(transferDoc) {
     // A concurrent request already completed this transfer while we waited.
     return { ownershipTransferred: true, txHash: transfer.transactionHash || '', blockNumber: null };
   }
+
+  // ── Legacy (off-chain) product path ──────────────────────────────────────
+  // Products registered before blockchain integration are not on-chain.
+  // Skip all relayer/chain steps and complete the transfer via MongoDB only.
+  const legacy = await isLegacyProduct(transfer.productId);
+  if (legacy) {
+    transfer.ownershipTransferStatus = 'pending';
+    transfer.ownershipTransferError = '';
+    await transfer.save();
+    await synchronizeLegacyTransfer(transfer);
+    return { ownershipTransferred: true, txHash: '', blockNumber: null };
+  }
+
+  // ── On-chain product path ─────────────────────────────────────────────────
   if (!relayer.isConfigured()) {
     transfer.ownershipTransferStatus = 'pending';
     transfer.ownershipTransferError = 'Automatic transfer needs a dedicated RELAYER_PRIVATE_KEY and a relayer-enabled contract deployment.';
@@ -254,6 +268,54 @@ async function currentOnChainOwner(productId) {
   }
 }
 
+// Returns true when a product exists only in MongoDB and was never registered
+// on the smart contract (legacy / imported records). These products use a
+// database-only ownership transfer path without any blockchain interaction.
+async function isLegacyProduct(productId) {
+  try {
+    const contract = contractAt();
+    const key = productKey(productId);
+    return !(await contract.productExists(key));
+  } catch {
+    // If we cannot reach the chain at all, treat as legacy so the transfer
+    // can still proceed via the DB-only path rather than failing entirely.
+    return true;
+  }
+}
+
+// Complete a legacy (off-chain) transfer by updating MongoDB directly.
+// No blockchain interaction is performed. Ownership is updated in the DB
+// and the transfer is marked completed with a synthetic confirmation.
+async function synchronizeLegacyTransfer(transfer) {
+  const product = await Product.findOne({ productId: transfer.productId });
+  if (!product) throw Object.assign(new Error('Product not found.'), { status: 404 });
+
+  // Verify the seller still owns the product in DB before updating.
+  if (product.walletAddress !== transfer.sellerWallet) {
+    throw Object.assign(new Error('The seller no longer owns this product in the database.'), { status: 409 });
+  }
+
+  const now = new Date();
+  product.walletAddress = transfer.buyerWallet;
+  product.status = 'Transferred';
+  product.blockchainStatus = 'not_registered'; // Keep it clearly marked as legacy
+  product.ownershipHistory.push({
+    from: transfer.sellerWallet,
+    to: transfer.buyerWallet,
+    transferredAt: now,
+    txHash: '', // No blockchain transaction
+  });
+  await product.save();
+
+  transfer.status = 'completed';
+  transfer.ownershipTransferStatus = 'confirmed';
+  transfer.ownershipTransferError = '';
+  transfer.completedAt = now;
+  transfer.transactionHash = '';
+  await transfer.save();
+  return product;
+}
+
 // Per-transfer mutex: serializes automatic ownership-transfer attempts for the
 // same transfer within this process (double-click, verify+finalize races).
 // The locked task re-reads the transfer from MongoDB first, so the second
@@ -340,11 +402,21 @@ router.post('/', async (req, res) => {
 
     const product = await Product.findOne({ productId });
     if (!product) return res.status(404).json({ message: 'Product not found.' });
-    const { owner } = await currentOnChainOwner(productId);
-    if (owner !== sellerWallet) return res.status(403).json({ message: 'Your connected wallet is not the current on-chain product owner.' });
-    if (product.walletAddress !== owner) {
-      product.walletAddress = owner;
-      await product.save();
+
+    // Legacy (off-chain) products: verify ownership via MongoDB only.
+    const legacy = await isLegacyProduct(productId);
+    if (legacy) {
+      if (product.walletAddress !== sellerWallet) {
+        return res.status(403).json({ message: 'Your connected wallet is not the recorded owner of this product.' });
+      }
+    } else {
+      // On-chain product: authoritative ownership from the smart contract.
+      const { owner } = await currentOnChainOwner(productId);
+      if (owner !== sellerWallet) return res.status(403).json({ message: 'Your connected wallet is not the current on-chain product owner.' });
+      if (product.walletAddress !== owner) {
+        product.walletAddress = owner;
+        await product.save();
+      }
     }
 
     const transfer = await Transfer.create({ productId, sellerWallet, buyerWallet, price, currency, status: 'pending' });
@@ -352,6 +424,7 @@ router.post('/', async (req, res) => {
       message: 'Transfer request sent. The buyer must review it before ownership can be transferred.',
       transfer: await serializeTransfer(transfer, true),
       paymentSupportedOnChain: false,
+      isLegacyProduct: legacy,
     });
   } catch (error) {
     if (error.code === 11000) return res.status(409).json({ message: 'This product already has a pending transfer request.' });
@@ -403,6 +476,12 @@ router.get('/pending-counts', async (req, res) => {
     ]);
     const hasOutstandingOwner = async (transfer) => {
       try {
+        // Legacy products: verify ownership via MongoDB (not on-chain).
+        const legacy = await isLegacyProduct(transfer.productId);
+        if (legacy) {
+          const product = await Product.findOne({ productId: transfer.productId }, 'walletAddress').lean();
+          return product?.walletAddress === transfer.sellerWallet;
+        }
         const { owner } = await currentOnChainOwner(transfer.productId);
         return owner === transfer.sellerWallet;
       } catch {
@@ -441,10 +520,21 @@ router.post('/:transferId/accept', async (req, res) => {
       status: 'pending',
     });
     if (!pending) return res.status(409).json({ message: 'This request is no longer pending or does not belong to your wallet.' });
-    const { owner } = await currentOnChainOwner(pending.productId);
-    if (owner !== pending.sellerWallet) {
-      return res.status(409).json({ message: 'The seller is no longer the current on-chain product owner.' });
+
+    // For legacy (off-chain) products, verify seller ownership via MongoDB only.
+    const legacy = await isLegacyProduct(pending.productId);
+    if (!legacy) {
+      const { owner } = await currentOnChainOwner(pending.productId);
+      if (owner !== pending.sellerWallet) {
+        return res.status(409).json({ message: 'The seller is no longer the current on-chain product owner.' });
+      }
+    } else {
+      const product = await Product.findOne({ productId: pending.productId }).lean();
+      if (!product || product.walletAddress !== pending.sellerWallet) {
+        return res.status(409).json({ message: 'The seller is no longer the recorded owner of this product.' });
+      }
     }
+
     const transfer = await Transfer.findOneAndUpdate(
       { _id: req.params.transferId, buyerWallet: wallet, status: 'pending' },
       { $set: { status: 'accepted', acceptedAt: new Date() } },
@@ -676,6 +766,17 @@ router.post('/:transferId/prepare-completion', async (req, res) => {
     if (transfer.paymentStatus !== 'paid') return res.status(409).json({ message: 'The buyer must complete and verify the Razorpay test payment before ownership can be transferred.' });
     const product = await Product.findOne({ productId: transfer.productId }).lean();
     if (!product) return res.status(404).json({ message: 'Product not found.' });
+
+    // Legacy products complete via the DB-only path; no contract calldata needed.
+    const legacy = await isLegacyProduct(transfer.productId);
+    if (legacy) {
+      return res.json({
+        isLegacyProduct: true,
+        ownershipMethod: 'database',
+        paymentSupportedOnChain: false,
+      });
+    }
+
     const { contract, key, owner } = await currentOnChainOwner(transfer.productId);
     if (owner !== seller) return res.status(409).json({ message: 'The seller is no longer the current on-chain product owner.' });
     return res.json({

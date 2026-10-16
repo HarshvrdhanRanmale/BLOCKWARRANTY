@@ -45,7 +45,7 @@ export default function ConnectWallet() {
         if (res.chainId === 11155111) {
           // If already on Sepolia and has valid token, go to dashboard or authenticate
           if (token) {
-            navigate("/dashboard");
+            navigate("/products");
           } else {
             navigate("/authenticate");
           }

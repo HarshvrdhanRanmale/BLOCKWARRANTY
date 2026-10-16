@@ -6,6 +6,7 @@ const Product = require('../models/Product');
 const Transfer = require('../models/Transfer');
 const { authenticate } = require('../middleware/auth');
 const { productKey, verifyTransactionEvent, contractAt, getProvider } = require('../services/blockchain');
+const { validateDocumentBuffer } = require('../services/documentParser');
 
 const router = express.Router();
 const text = (value, maxLength = 5000) => String(value ?? '').trim().slice(0, maxLength);
@@ -101,17 +102,20 @@ router.post('/', async (req, res) => {
     const invoiceInput = body.invoiceFile;
     let invoiceBuffer = null;
     if (invoiceInput?.data) {
-      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
-      if (invoiceInput.mimeType === 'image/jpg') invoiceInput.mimeType = 'image/jpeg';
       const encoded = String(invoiceInput.data);
-      if (!allowedMimeTypes.includes(invoiceInput.mimeType) || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
-        return res.status(400).json({ message: 'The invoice file must be a valid JPG, PNG, or WEBP image.' });
+      if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+        return res.status(400).json({ message: 'The invoice file data is not valid base64 encoding.' });
       }
       invoiceBuffer = Buffer.from(encoded, 'base64');
-      if (invoiceBuffer.length > 10 * 1024 * 1024) return res.status(413).json({ message: 'Invoice size must be 10 MB or smaller.' });
+      let validatedMimeType;
+      try {
+        validatedMimeType = validateDocumentBuffer(invoiceInput.mimeType, invoiceBuffer, 15 * 1024 * 1024);
+      } catch (valErr) {
+        return res.status(valErr.status || 400).json({ message: valErr.message });
+      }
       uploadedInvoice = await uploadInvoice({
         name: text(invoiceInput.name, 255) || 'invoice',
-        mimeType: invoiceInput.mimeType,
+        mimeType: validatedMimeType,
         buffer: invoiceBuffer
       }, owner, productId);
     }

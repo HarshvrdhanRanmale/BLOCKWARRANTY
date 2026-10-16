@@ -227,7 +227,7 @@ export default function TransferOwnership() {
                     <div><dt className="text-xs text-slate-500">Buyer wallet</dt><dd className="mt-1 break-all font-mono text-[11px] text-slate-700">{normalizedBuyer || 'Not entered'}</dd></div>
                     <div><dt className="text-xs text-slate-500">Agreed amount</dt><dd className="mt-1 text-lg font-extrabold text-slate-950">{validPrice ? `${currency} ${Number(price).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : 'Not entered'}</dd></div>
                   </dl>
-                  <p className="mt-4 flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><ShieldCheck size={15} className="mt-0.5 shrink-0" /><span>After the buyer accepts, they pay with Razorpay Test Mode (UPI — no real money). Once the backend verifies the test payment, ownership transfers to the buyer automatically on-chain.</span></p>
+                  <p className="mt-4 flex gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-700"><ShieldCheck size={15} className="mt-0.5 shrink-0 text-blue-600" /><span>After the buyer accepts, they complete payment. Once payment is verified, ownership transfers to the buyer automatically on-chain.</span></p>
                 </aside>
               </div>}
             </div>

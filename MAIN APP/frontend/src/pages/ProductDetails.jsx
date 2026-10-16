@@ -66,13 +66,13 @@ async function downloadInvoice(product, token) {
 
 function Panel({ icon, title, subtitle, children }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.035)] sm:p-6">
-      <div className="mb-5 flex items-center gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.035)] sm:p-6">
+      <div className="mb-4 flex items-center gap-3 sm:mb-5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
           {icon}
         </span>
-        <div>
-          <h2 className="text-sm font-bold text-slate-900">{title}</h2>
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-bold text-slate-900">{title}</h2>
           {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
         </div>
       </div>
@@ -83,7 +83,7 @@ function Panel({ icon, title, subtitle, children }) {
 
 function Field({ label, value }) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 overflow-hidden">
       <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{label}</p>
       <p className="mt-1 break-words text-sm font-semibold text-slate-800">{fmt(value)}</p>
     </div>
@@ -122,19 +122,19 @@ function ProductPassportQr({ url }) {
   };
 
   return (
-    <div className="rounded-2xl bg-slate-50 p-4 text-center">
+    <div className="rounded-2xl bg-slate-50 p-3.5 text-center sm:p-4">
       <p className="text-sm font-bold text-slate-900">Product Passport</p>
-      <div className="mx-auto mt-3 inline-flex rounded-xl bg-white p-3">
-        <QRCodeCanvas id={canvasId} value={url} size={192} level="M" includeMargin />
+      <div className="mx-auto mt-3 inline-flex max-w-full rounded-xl bg-white p-2.5 shadow-sm sm:p-3">
+        <QRCodeCanvas id={canvasId} value={url} size={164} level="M" includeMargin className="max-w-full h-auto" />
       </div>
-      <a href={url} target="_blank" rel="noreferrer" className="mt-3 block truncate text-xs text-blue-700 hover:underline">
+      <a href={url} target="_blank" rel="noreferrer" className="mt-3 block w-full max-w-full truncate px-1 text-xs text-blue-700 hover:underline">
         {url}
       </a>
-      <div className="mt-3 flex justify-center gap-2">
-        <button type="button" onClick={downloadQr} className="h-9 rounded-xl bg-blue-700 px-3 text-xs font-bold text-white hover:bg-blue-800">
+      <div className="mt-3 flex flex-wrap justify-center gap-2">
+        <button type="button" onClick={downloadQr} className="h-9 flex-1 rounded-xl bg-blue-700 px-3 text-xs font-bold text-white hover:bg-blue-800 sm:flex-initial">
           Download QR
         </button>
-        <button type="button" onClick={copyLink} className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-100">
+        <button type="button" onClick={copyLink} className="h-9 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-100 sm:flex-initial">
           {copied ? "Copied" : "Copy link"}
         </button>
       </div>
@@ -272,17 +272,17 @@ export default function ProductDetails() {
         <>
           {/* Page header */}
           <header className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-            <div>
+            <div className="min-w-0">
               <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-blue-700">Product record</p>
-              <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+              <h1 className="mt-1.5 break-words text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl md:text-4xl">
                 {val("productName")}
               </h1>
-              <p className="mt-1.5 text-sm text-slate-500">
+              <p className="mt-1 break-all text-xs text-slate-500 sm:text-sm">
                 {product.productId} · {val("brand") || val("category") || "Product"}
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
+            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 sm:text-sm">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
                 {product.status || "Active"}
               </span>
@@ -292,7 +292,7 @@ export default function ProductDetails() {
                   type="button"
                   disabled={chainBusy}
                   onClick={() => chainAction("register")}
-                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 text-sm font-bold text-blue-700 shadow-sm hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-3.5 text-xs font-bold text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 sm:h-11 sm:px-4 sm:text-sm"
                 >
                   <ShieldCheck size={16} />
                   {chainBusy ? "Registering…" : "Retry blockchain"}
@@ -304,7 +304,7 @@ export default function ProductDetails() {
                 id="btn-transfer-ownership"
                 aria-disabled={chainBusy || product.blockchainStatus !== "confirmed"}
                 onClick={(event) => { if (chainBusy || product.blockchainStatus !== "confirmed") event.preventDefault(); }}
-                className={`inline-flex h-11 items-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-bold text-white shadow-sm hover:bg-blue-800 transition ${chainBusy || product.blockchainStatus !== "confirmed" ? "cursor-not-allowed opacity-50" : ""}`}
+                className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-700 px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-blue-800 sm:h-11 sm:px-4 sm:text-sm ${chainBusy || product.blockchainStatus !== "confirmed" ? "cursor-not-allowed opacity-50" : ""}`}
               >
                 <ArrowRightLeft size={16} /> Transfer Ownership
               </Link>
@@ -312,27 +312,27 @@ export default function ProductDetails() {
           </header>
 
           {/* Status notices */}
-          {chainBusy && <p role="status" className="mb-4 rounded-xl bg-blue-50 p-3 text-sm text-blue-800">Waiting for wallet transaction and blockchain confirmation…</p>}
-          {chainNotice && <p role="status" className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{chainNotice}</p>}
-          {chainError && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{chainError}</p>}
+          {chainBusy && <p role="status" className="mb-4 rounded-xl bg-blue-50 p-3 text-xs sm:text-sm text-blue-800">Waiting for wallet transaction and blockchain confirmation…</p>}
+          {chainNotice && <p role="status" className="mb-4 rounded-xl bg-emerald-50 p-3 text-xs sm:text-sm text-emerald-800">{chainNotice}</p>}
+          {chainError && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-xs sm:text-sm text-red-700">{chainError}</p>}
 
           {/* Main grid */}
           <div className="grid items-start gap-5 lg:grid-cols-[1.2fr_1fr]">
             {/* Left column */}
-            <div className="space-y-5">
+            <div className="space-y-5 min-w-0">
               {/* Product image */}
-              <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-                <div className="flex min-h-[340px] items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-blue-50 via-slate-50 to-indigo-50 p-6 sm:min-h-[370px]">
+              <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-5">
+                <div className="flex min-h-[220px] items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-blue-50 via-slate-50 to-indigo-50 p-4 sm:min-h-[340px] sm:p-6">
                   {product.productImage
-                    ? <img src={product.productImage} alt={val("productName")} className="max-h-[330px] max-w-full object-contain" />
-                    : <div className="flex flex-col items-center gap-3 text-slate-400"><Package size={44} /><span className="text-sm font-medium">No product image</span></div>
+                    ? <img src={product.productImage} alt={val("productName")} className="max-h-[300px] max-w-full object-contain" />
+                    : <div className="flex flex-col items-center gap-2 text-slate-400"><Package size={40} /><span className="text-xs sm:text-sm font-medium">No product image</span></div>
                   }
                 </div>
               </section>
 
               {/* Product info */}
               <Panel icon={<Tag size={17} />} title="Product information">
-                <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+                <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
                   <Field label="Product name" value={val("productName")} />
                   <Field label="Brand" value={val("brand")} />
                   <Field label="Category" value={val("category")} />
@@ -351,16 +351,33 @@ export default function ProductDetails() {
               <Panel icon={<ArrowRightLeft size={17} />} title="Ownership history">
                 <div className="space-y-3">
                   {(product.ownershipHistory || []).length > 0 ? product.ownershipHistory.map((entry, index) => (
-                    <div key={entry.txHash || `${entry.from}-${entry.to}-${index}`} className="rounded-2xl bg-slate-50 p-4">
-                      <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-800">
-                        <span className="font-mono text-xs">{shortAddress(entry.from)}</span>
-                        <ArrowRightLeft size={14} className="text-blue-700" />
-                        <span className="font-mono text-xs">{shortAddress(entry.to)}</span>
+                    <div key={entry.txHash || `${entry.from}-${entry.to}-${index}`} className="rounded-2xl bg-slate-50 p-3.5 sm:p-4">
+                      <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm font-semibold text-slate-800">
+                        <span className="font-mono">{shortAddress(entry.from)}</span>
+                        <ArrowRightLeft size={13} className="text-blue-700 shrink-0" />
+                        <span className="font-mono">{shortAddress(entry.to)}</span>
                       </div>
-                      <p className="mt-2 text-xs text-slate-500">Transferred {fmtDate(entry.transferredAt)}</p>
-                      {entry.txHash && <a href={`https://sepolia.etherscan.io/tx/${entry.txHash}`} target="_blank" rel="noreferrer" className="mt-2 block truncate font-mono text-[10px] text-blue-700 hover:underline">{entry.txHash}</a>}
+                      <p className="mt-1.5 text-xs text-slate-500">Transferred {fmtDate(entry.transferredAt)}</p>
+                      {entry.txHash && (
+                        <a
+                          href={`https://sepolia.etherscan.io/tx/${entry.txHash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1.5 block break-all font-mono text-[10px] text-blue-700 hover:underline"
+                        >
+                          Tx: {entry.txHash}
+                        </a>
+                      )}
                     </div>
-                  )) : <div className="rounded-2xl bg-slate-50 p-4"><div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="inline-flex items-center gap-2"><Wallet size={15} /> {shortAddress(product.walletAddress)}</span><span className="text-xs font-medium text-slate-500">Registered {fmtDate(product.createdAt || product.purchaseDate)}</span></div><p className="mt-2 text-xs text-slate-500">Current owner · No confirmed ownership transfer recorded.</p></div>}
+                  )) : (
+                    <div className="rounded-2xl bg-slate-50 p-3.5 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs sm:text-sm font-semibold text-slate-800">
+                        <span className="inline-flex items-center gap-2 break-all"><Wallet size={15} className="shrink-0" /> {shortAddress(product.walletAddress)}</span>
+                        <span className="text-xs font-medium text-slate-500">Registered {fmtDate(product.createdAt || product.purchaseDate)}</span>
+                      </div>
+                      <p className="mt-1.5 text-xs text-slate-500">Current owner · No confirmed ownership transfer recorded.</p>
+                    </div>
+                  )}
                   <p className="text-xs text-slate-500">Current owner: <span className="font-mono text-slate-700">{shortAddress(product.walletAddress)}</span>. On-chain ownership is authoritative.</p>
                 </div>
               </Panel>
@@ -370,11 +387,11 @@ export default function ProductDetails() {
             </div>
 
             {/* Right column */}
-            <div className="space-y-5">
+            <div className="space-y-5 min-w-0">
               {/* Warranty & purchase */}
               <Panel icon={<ShieldCheck size={17} />} title="Warranty & purchase">
                 <BlockchainBadge status={product.blockchainStatus} txHash={product.blockchainTxHash} />
-                <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+                <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
                   <Field
                     label="Warranty period"
                     value={
@@ -413,7 +430,7 @@ export default function ProductDetails() {
 
               {/* Invoice & pricing */}
               <Panel icon={<CalendarDays size={17} />} title="Invoice & pricing">
-                <div className="grid gap-x-7 gap-y-4 sm:grid-cols-2">
+                <div className="grid gap-x-6 gap-y-3.5 sm:grid-cols-2">
                   <MoneyField label="Currency" value={val("currency")} currency="" />
                   <MoneyField label="Unit price" value={val("unitPrice")} currency={val("currency")} />
                   <MoneyField label="Quantity" value={val("quantity")} currency="" />

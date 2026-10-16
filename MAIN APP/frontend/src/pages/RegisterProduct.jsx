@@ -25,6 +25,7 @@ import {
   metadataHash,
   toUnixSeconds,
 } from "../blockchain/contractService";
+import UniversalDocumentUpload from "../components/UniversalDocumentUpload";
 
 const PRODUCT_CATEGORIES = [
   "Laptop",
@@ -146,29 +147,8 @@ function RegisterProduct() {
   // INVOICE UPLOAD
   // =========================================================
 
-  const handleInvoiceChange = (e) => {
-    const file = e.target.files?.[0];
-
+  const handleInvoiceSelect = (file, previewUrl) => {
     if (!file) return;
-
-    const allowedTypes = [
-      "image/png",
-      "image/jpeg",
-      "image/jpg",
-      "image/webp",
-    ];
-
-    if (!allowedTypes.includes(file.type)) {
-      setErrorMessage(
-        "Please upload a JPG, PNG, or WEBP invoice image."
-      );
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      setErrorMessage("Invoice size must be less than 10 MB.");
-      return;
-    }
 
     setErrorMessage("");
     setExtractionError("");
@@ -183,19 +163,7 @@ function RegisterProduct() {
       productImageSourceUrl: "",
       invoiceExtractedData: {},
     }));
-
-    if (file.type.startsWith("image/")) {
-      const reader = new FileReader();
-
-      reader.onloadend = () => {
-        setInvoicePreview(reader.result);
-      };
-
-      reader.readAsDataURL(file);
-    } else {
-      setInvoicePreview("");
-    }
-
+    setInvoicePreview(previewUrl || "");
     extractInvoice(file);
   };
 
@@ -209,13 +177,10 @@ function RegisterProduct() {
     setExtractionError("");
 
     try {
-      if (file.type === "application/pdf") {
-        throw new Error("Groq invoice extraction currently needs an image. Please upload a JPG or PNG version of this invoice.");
-      }
       const fileData = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
-        reader.onerror = () => reject(new Error("The selected invoice image could not be read."));
+        reader.onerror = () => reject(new Error("The selected invoice file could not be read."));
         reader.readAsDataURL(file);
       });
 
@@ -224,7 +189,7 @@ function RegisterProduct() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileName: file.name, fileType: file.type, fileData }),
+          body: JSON.stringify({ fileName: file.name, fileType: file.type || "application/octet-stream", fileData }),
         }
       );
 
@@ -680,7 +645,7 @@ function RegisterProduct() {
             </Link>
 
             <Link
-              to="/dashboard"
+              to="/products"
               className="
                 text-sm
                 font-medium
@@ -688,7 +653,7 @@ function RegisterProduct() {
                 hover:text-[#2563EB]
               "
             >
-              Dashboard
+              My Products
             </Link>
 
             <Link
@@ -869,7 +834,7 @@ function RegisterProduct() {
               </div>
 
               <Link
-                to="/dashboard"
+                to="/products"
                 className="
                   inline-flex
                   w-fit
@@ -880,7 +845,7 @@ function RegisterProduct() {
                   text-[#2563EB]
                 "
               >
-                Back to Dashboard
+                Back to My Products
                 <ArrowRight size={16} />
               </Link>
 
@@ -973,8 +938,7 @@ function RegisterProduct() {
                   invoicePreview={invoicePreview}
                   extracting={extracting}
                   extractionError={extractionError}
-                  invoiceInputRef={invoiceInputRef}
-                  handleInvoiceChange={handleInvoiceChange}
+                  onFileSelect={handleInvoiceSelect}
                   removeInvoice={removeInvoice}
                   retryExtraction={() => invoiceFile && extractInvoice(invoiceFile)}
                   continueManually={() => {
@@ -1765,8 +1729,7 @@ function UploadInvoiceStep({
   invoicePreview,
   extracting,
   extractionError,
-  invoiceInputRef,
-  handleInvoiceChange,
+  onFileSelect,
   removeInvoice,
   retryExtraction,
   continueManually,
@@ -1782,7 +1745,6 @@ function UploadInvoiceStep({
         shadow-[0_12px_40px_rgba(15,23,42,0.05)]
       "
     >
-
       <div
         className="
           border-b
@@ -1795,9 +1757,7 @@ function UploadInvoiceStep({
           sm:px-8
         "
       >
-
         <div className="flex items-center gap-4">
-
           <div
             className="
               flex
@@ -1814,310 +1774,34 @@ function UploadInvoiceStep({
           </div>
 
           <div>
-            <h3 className="text-base font-bold">
+            <h3 className="text-base font-bold text-slate-900">
               Upload Your Invoice
             </h3>
 
             <p className="mt-0.5 text-xs text-[#64748B]">
-              AI will automatically read the invoice
-              and extract the product details.
+              AI will automatically read the invoice and extract the product details.
             </p>
           </div>
-
         </div>
       </div>
 
       <div className="px-6 py-8 sm:px-8">
-
-        <input
-          ref={invoiceInputRef}
-          type="file"
-          accept=".png,.jpg,.jpeg,.webp"
-          onChange={handleInvoiceChange}
-          className="hidden"
+        <UniversalDocumentUpload
+          file={invoiceFile}
+          preview={invoicePreview}
+          onFileSelect={onFileSelect}
+          onRemove={removeInvoice}
+          onExtract={retryExtraction}
+          extracting={extracting}
+          extractionError={extractionError}
+          extractionSuccess={false}
+          label="Choose invoice or drop it here"
+          description="Drag & drop, browse, or paste an invoice image/PDF (Ctrl+V). AI will extract product details automatically."
+          maxSizeMB={15}
+          isService={false}
+          showExtractButton={Boolean(extractionError)}
+          onContinueManually={continueManually}
         />
-
-        {!invoiceFile ? (
-          <button
-            type="button"
-            onClick={() =>
-              invoiceInputRef.current?.click()
-            }
-            className="
-              group
-              flex
-              min-h-[330px]
-              w-full
-              flex-col
-              items-center
-              justify-center
-              rounded-3xl
-              border-2
-              border-dashed
-              border-[#BFDBFE]
-              bg-[#F8FAFC]
-              px-6
-              transition-all
-              hover:border-[#2563EB]
-              hover:bg-[#E0EFFF]/40
-            "
-          >
-
-            <div
-              className="
-                mb-5
-                flex
-                h-16
-                w-16
-                items-center
-                justify-center
-                rounded-2xl
-                bg-[#E0EFFF]
-                text-[#2563EB]
-                transition
-                group-hover:scale-105
-              "
-            >
-              <Upload size={28} />
-            </div>
-
-            <p
-              className="
-                text-lg
-                font-bold
-                text-[#0F172A]
-              "
-            >
-              Upload Invoice
-            </p>
-
-            <p
-              className="
-                mt-2
-                max-w-md
-                text-center
-                text-sm
-                leading-6
-                text-[#64748B]
-              "
-            >
-              Upload an image of your purchase
-              invoice. AI will extract the details
-              automatically.
-            </p>
-
-            <span
-              className="
-                mt-5
-                rounded-xl
-                bg-[#2563EB]
-                px-5
-                py-2.5
-                text-sm
-                font-semibold
-                text-white
-              "
-            >
-              Choose Invoice
-            </span>
-
-            <p
-              className="
-                mt-4
-                text-xs
-                text-[#94A3B8]
-              "
-            >
-              JPG, JPEG, PNG or WEBP • Max 10 MB
-            </p>
-
-          </button>
-        ) : (
-          <div>
-
-            <div
-              className="
-                overflow-hidden
-                rounded-3xl
-                border
-                border-[#BFDBFE]
-                bg-[#E0EFFF]/40
-              "
-            >
-
-              {invoicePreview && (
-                <div
-                  className="
-                    flex
-                    min-h-[250px]
-                    items-center
-                    justify-center
-                    border-b
-                    border-[#BFDBFE]
-                    bg-white
-                    p-5
-                  "
-                >
-                  <img
-                    src={invoicePreview}
-                    alt="Invoice preview"
-                    className="
-                      max-h-[400px]
-                      max-w-full
-                      rounded-xl
-                      object-contain
-                      shadow-sm
-                    "
-                  />
-                </div>
-              )}
-
-              {!invoicePreview && (
-                <div
-                  className="
-                    flex
-                    min-h-[220px]
-                    flex-col
-                    items-center
-                    justify-center
-                    bg-white
-                  "
-                >
-                  <FileText
-                    size={55}
-                    className="text-[#2563EB]"
-                  />
-
-                  <p className="mt-4 text-sm font-bold">
-                    PDF Invoice
-                  </p>
-                </div>
-              )}
-
-              <div className="p-5">
-
-                <div
-                  className="
-                    flex
-                    flex-col
-                    gap-4
-                    sm:flex-row
-                    sm:items-center
-                    sm:justify-between
-                  "
-                >
-
-                  <div className="flex items-center gap-3">
-
-                    <CheckCircle2
-                      size={20}
-                      className="text-[#16A34A]"
-                    />
-
-                    <div>
-                      <p className="text-sm font-bold">
-                        {invoiceFile.name}
-                      </p>
-
-                      <p
-                        className="
-                          mt-1
-                          text-xs
-                          text-[#64748B]
-                        "
-                      >
-                        {(
-                          invoiceFile.size /
-                          1024 /
-                          1024
-                        ).toFixed(2)}{" "}
-                        MB
-                      </p>
-                    </div>
-
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={removeInvoice}
-                    className="
-                      inline-flex
-                      items-center
-                      gap-2
-                      text-xs
-                      font-semibold
-                      text-red-600
-                      hover:text-red-700
-                    "
-                  >
-                    <X size={15} />
-                    Remove
-                  </button>
-
-                </div>
-
-              </div>
-            </div>
-
-            {extracting && (
-              <div
-                className="
-                  mt-5
-                  flex
-                  items-center
-                  gap-3
-                  rounded-2xl
-                  border
-                  border-[#BFDBFE]
-                  bg-[#E0EFFF]/50
-                  px-5
-                  py-4
-                "
-              >
-                <RefreshCw
-                  size={20}
-                  className="animate-spin text-[#2563EB]"
-                />
-
-                <div>
-                  <p className="text-sm font-bold">
-                    AI is analyzing your invoice...
-                  </p>
-
-                  <p className="mt-1 text-xs text-[#64748B]">
-                    This may take a few seconds.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {extractionError && !extracting && (
-              <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-5">
-                <p className="text-sm font-semibold text-red-700">
-                  {extractionError}
-                </p>
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={retryExtraction}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1D4EDB]"
-                  >
-                    <RefreshCw size={15} />
-                    Retry extraction
-                  </button>
-                  <button
-                    type="button"
-                    onClick={continueManually}
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-[#334155] hover:bg-slate-50"
-                  >
-                    Enter details manually
-                  </button>
-                </div>
-              </div>
-            )}
-
-          </div>
-        )}
 
         <div
           className="
@@ -2148,13 +1832,9 @@ function UploadInvoiceStep({
               text-[#64748B]
             "
           >
-            Make sure the invoice is clear and readable.
-            AI will extract the product name, brand,
-            purchase date, invoice number and warranty
-            information when available.
+            Make sure the invoice is clear and readable. Supports JPG, PNG, WebP, HEIC/HEIF, and text-based PDF up to 15 MB. AI will extract the product name, brand, purchase date, invoice number, and warranty information when available.
           </p>
         </div>
-
       </div>
     </div>
   );

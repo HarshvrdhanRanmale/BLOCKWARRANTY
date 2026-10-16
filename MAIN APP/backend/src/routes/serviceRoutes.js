@@ -113,21 +113,52 @@ function readDocument(req) {
   return { buffer, fileType: normalizedType, fileName };
 }
 
+const { prepareDocumentForExtraction } = require('../services/documentParser');
+
 router.post('/extract', async (req, res) => {
   try {
     const product = await findOwnedProduct(req);
     if (!product) return res.status(mongoose.connection.readyState === 1 ? 404 : 503).json({ message: 'Product unavailable or database disconnected.' });
-    const { buffer, fileType } = readDocument(req);
-    if (!AI_IMAGE_TYPES.has(fileType)) return res.status(415).json({ message: 'This file format is supported as a private attachment. Automatic extraction currently accepts JPG, PNG, or WEBP images; enter the details manually and save the original document.' });
+    const { buffer, fileType, fileName } = readDocument(req);
     if (!process.env.GROQ_API_KEY) return res.status(503).json({ message: 'Document extraction is not configured. Set GROQ_API_KEY in backend/.env.' });
+
+    let prepared;
+    try {
+      prepared = await prepareDocumentForExtraction(buffer, fileType, fileName);
+    } catch (prepError) {
+      return res.status(prepError.status || 415).json({ message: prepError.message || 'This file format is not supported for automatic extraction. Please enter details manually.' });
+    }
+
+    if (prepared.mode === 'unsupported_scanned_pdf') {
+      return res.status(422).json({
+        message: prepared.message,
+        isScannedPdf: true
+      });
+    }
+
     const fields = ['invoiceNumber', 'serviceDate', 'serviceCenterName', 'serviceCenterContact', 'serviceType', 'issueReported', 'diagnosis', 'workPerformed', 'partsReplaced', 'laborCost', 'partsCost', 'totalCost', 'currency', 'warrantyCovered', 'customerCost', 'claimDate', 'claimDescription', 'resolution'];
+    const messages = prepared.mode === 'text'
+      ? [{
+          role: 'user',
+          content: `Extract service/repair or warranty-claim data from this document text:\n\n${prepared.text}\n\nReturn a JSON object with exactly these fields: ${fields.join(', ')}. Use empty strings for unsupported values; never guess. Dates must be YYYY-MM-DD, costs numeric strings, warrantyCovered a boolean or empty string, partsReplaced an array of objects with name, partNumber, quantity, warrantyCovered, cost.`
+        }]
+      : [{
+          role: 'user',
+          content: [
+            { type: 'text', text: `Extract service/repair or warranty-claim data from this document. Return a JSON object with exactly these fields: ${fields.join(', ')}. Use empty strings for unsupported values; never guess. Dates must be YYYY-MM-DD, costs numeric strings, warrantyCovered a boolean or empty string, partsReplaced an array of objects with name, partNumber, quantity, warrantyCovered, cost.` },
+            { type: 'image_url', image_url: { url: `data:${prepared.mimeType};base64,${prepared.base64}` } }
+          ]
+        }];
+
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST', signal: AbortSignal.timeout(45000),
       headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: [
-        { type: 'text', text: `Extract service/repair or warranty-claim data from this document. Return a JSON object with exactly these fields: ${fields.join(', ')}. Use empty strings for unsupported values; never guess. Dates must be YYYY-MM-DD, costs numeric strings, warrantyCovered a boolean or empty string, partsReplaced an array of objects with name, partNumber, quantity, warrantyCovered, cost.` },
-        { type: 'image_url', image_url: { url: `data:${fileType};base64,${buffer.toString('base64')}` } }
-      ] }] })
+      body: JSON.stringify({
+        model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages
+      })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) return res.status(502).json({ message: result.error?.message || `Groq document extraction failed (${response.status}). Review the bill manually.` });

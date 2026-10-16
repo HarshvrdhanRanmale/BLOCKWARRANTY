@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowRightLeft, Check, Clock3, FileText, LoaderCircle, ShieldCheck, Wallet, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, ArrowRightLeft, Check, Clock3, FileText, LoaderCircle, ShieldCheck, Wallet, X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import WorkspaceLayout from '../components/WorkspaceLayout';
 import { useAuthFlow } from '../auth/useAuthFlow';
@@ -65,6 +65,8 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
   const [confirmingAccept, setConfirmingAccept] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const listRequestSequence = useRef(0);
@@ -155,6 +157,8 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
   async function openDetails(item) {
     setError('');
     setNotice('');
+    setVerifying(false);
+    setRetrying(false);
     setConfirmingAccept(false);
     setLoadingDetails(true);
     try {
@@ -189,58 +193,53 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
   }
 
   async function retryAutomaticTransfer() {
-    if (!selected || selected.paymentStatus !== 'paid' || selected.status === 'completed') return;
+    if (!selected || selected.paymentStatus !== 'paid' || selected.status === 'completed' || retrying) return;
+    setRetrying(true);
     setBusy(true);
     setError('');
-    setNotice('Payment is verified. Retrying the automatic blockchain transfer…');
+    setNotice('');
     try {
       const result = await apiPost(`/api/transfers/${selected.id}/finalize`, {}, token);
       setSelected(result.transfer);
-      setNotice(isSeller
-        ? 'Product successfully transferred to the new owner.'
-        : 'Payment successful! The product has been transferred to your ownership.');
       window.dispatchEvent(new Event('blockwarranty:transfers-changed'));
       listRequestSequence.current += 1;
       await refreshTransfers();
     } catch (retryError) {
-      setError(retryError.message || 'Payment is verified, but the ownership transfer is still pending. Retry later.');
+      setError(retryError.message || 'Payment is verified, but ownership transfer is pending blockchain confirmation. You can retry later.');
       const refreshed = await apiGet(`/api/transfers/${selected.id}`, token).catch(() => null);
       if (refreshed?.transfer) setSelected(refreshed.transfer);
     } finally {
       setBusy(false);
+      setRetrying(false);
     }
   }
 
-  // Buyer pays the agreed amount with Razorpay Test Mode (UPI). The order is
-  // created and the payment is verified entirely by the backend; the browser
-  // only passes the checkout response fields through to the verify endpoint.
   async function payWithRazorpay() {
-    if (!selected || selected.status !== 'accepted') return;
+    if (!selected || selected.status !== 'accepted' || busy || verifying) return;
     setBusy(true);
     setError('');
-    setNotice('Creating a Razorpay test order…');
+    setNotice('');
     try {
       const created = await apiPost(`/api/transfers/${selected.id}/payment/create-order`, {}, token);
       const { keyId, orderId, amount, currency } = created;
       if (!keyId || !orderId) {
-        throw new Error('The backend did not return a valid Razorpay test order.');
+        throw new Error('Could not initiate payment. Please retry.');
       }
-      setNotice('Opening Razorpay test checkout. Choose UPI to complete the payment.');
       await openRazorpayCheckout({
         keyId,
         orderId,
         amountMinor: amount,
         currency,
         name: 'BlockWarranty',
-        description: `Test payment for ${selected.product?.productName || 'product transfer'}`,
+        description: `Payment for ${selected.product?.productName || 'product transfer'}`,
         onDismiss: () => {
-          setError('The Razorpay test payment was cancelled. You can pay again when ready.');
-          setNotice('');
+          setError('Payment was cancelled. You can pay again when ready.');
           setBusy(false);
+          setVerifying(false);
         },
         handler: async (response) => {
+          setVerifying(true);
           try {
-            setNotice('Payment submitted. Verifying with the backend…');
             const verified = await apiPost(`/api/transfers/${selected.id}/payment/verify`, {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
@@ -248,18 +247,9 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
             }, token);
 
             let latest = verified.transfer;
-            // The backend already attempts the automatic relayer transfer during
-            // verification. If it verified the payment but could not complete the
-            // on-chain step (e.g., a transient RPC error), retry once via /finalize.
-            if (verified.paymentVerified && !verified.ownershipTransferred) {
-              setSelected(latest);
-              setNotice('Payment verified, but ownership is still pending. You can retry the automatic transfer.');
-              setError(verified.finalizeError || '');
-            } else {
-              setSelected(latest);
-              setNotice(isSeller
-                ? 'Product successfully transferred to the new owner.'
-                : 'Payment successful! The product has been transferred to your ownership.');
+            setSelected(latest);
+            if (verified.paymentVerified && !verified.ownershipTransferred && verified.finalizeError) {
+              setError(verified.finalizeError);
             }
 
             listRequestSequence.current += 1;
@@ -270,16 +260,16 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
             setError(verifyError.message || 'The payment could not be verified. If money was debited, contact support.');
           } finally {
             setBusy(false);
+            setVerifying(false);
           }
         },
       });
     } catch (payError) {
-      // Only surface an error if the checkout never opened (dismiss is handled above).
       if (!String(payError.message || '').toLowerCase().includes('cancel')) {
-        setError(payError.message || 'The Razorpay test payment could not be started.');
+        setError(payError.message || 'Payment could not be started.');
       }
-      setNotice('');
       setBusy(false);
+      setVerifying(false);
     }
   }
 
@@ -355,7 +345,7 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
                 <Info label="Warranty" value={selected.product?.warrantyPeriod ? `${selected.product.warrantyPeriod} ${selected.product.warrantyUnit || 'Years'}` : 'See passport'} />
                 <Info label="Purchase date" value={dateLabel(selected.product?.purchaseDate)} />
                 <Info label="Request status" value={<Status status={selected.status} />} />
-                {selected.status === 'accepted' && <Info label="Payment status (Razorpay Test)" value={<span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-bold ${selected.paymentStatus === 'paid' ? 'bg-emerald-50 text-emerald-800' : selected.paymentStatus === 'failed' ? 'bg-rose-50 text-rose-700' : selected.paymentStatus === 'created' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{selected.paymentStatus === 'paid' ? 'Paid (verified)' : selected.paymentStatus === 'failed' ? 'Failed' : selected.paymentStatus === 'created' ? 'Awaiting payment' : 'Not started'}</span>} />}
+                {selected.status === 'accepted' && <Info label="Payment status" value={<span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-bold ${selected.paymentStatus === 'paid' ? 'bg-emerald-50 text-emerald-800' : selected.paymentStatus === 'failed' ? 'bg-rose-50 text-rose-700' : selected.paymentStatus === 'created' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{selected.paymentStatus === 'paid' ? 'Paid (verified)' : selected.paymentStatus === 'failed' ? 'Failed' : selected.paymentStatus === 'created' ? 'Awaiting payment' : 'Not started'}</span>} />}
                 <Info label="Seller wallet" value={<span className="break-all font-mono text-xs">{selected.sellerWallet}</span>} />
                 <Info label="Buyer wallet" value={<span className="break-all font-mono text-xs">{selected.buyerWallet}</span>} />
                 <Info label="Agreed amount" value={`${selected.currency} ${Number(selected.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
@@ -364,21 +354,26 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
               <div className="flex flex-wrap items-center gap-3 border-y border-slate-200 py-3 text-sm text-slate-700"><FileText size={16} className="text-blue-700" />{selected.product?.hasInvoice ? 'Existing invoice attached to Product Passport' : 'No invoice document attached'}{selected.product?.hasInvoice && <button type="button" disabled={busy} onClick={() => downloadPassportInvoice(selected.product, token).catch((downloadError) => setError(downloadError.message))} className="ml-auto text-xs font-bold text-blue-700 hover:text-blue-900">View document</button>}</div>
               {selected.product?.publicId && <Link to={passportPath(selected.product)} onClick={() => setSelected(null)} className="inline-flex items-center gap-2 text-sm font-bold text-blue-700 hover:text-blue-900">Open existing Product Passport <ArrowRight size={15} /></Link>}
               {selected.transactionHash && <p className="break-all text-xs text-slate-500">Transaction: <a className="font-mono text-blue-700 hover:underline" target="_blank" rel="noreferrer" href={transactionUrl(selected.transactionHash)}>{selected.transactionHash}</a></p>}
-              {selected.status === 'accepted' && selected.ownershipTransferStatus !== 'confirmed' && <p role="status" className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-5 text-amber-900"><ShieldCheck size={17} className="mt-0.5 shrink-0" /><span>{selected.paymentStatus === 'paid' ? 'Payment has been verified. Ownership is still pending until the blockchain confirms the transfer.' : isSeller ? 'The buyer accepted. Once they complete the Razorpay test payment, ownership transfers automatically — no action is required from you.' : 'Pay with Razorpay Test Mode (UPI). After backend verification, ownership transfers automatically and the product appears in My Products.'} This is a Razorpay Test Mode payment — no real money is collected.</span></p>}
-              {selected.status === 'completed' && <div role="status" className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm leading-5 text-emerald-900"><Check size={18} className="mt-0.5 shrink-0" /><div><p className="font-bold">{isSeller ? 'Product successfully transferred to the new owner.' : 'Payment successful! The product has been transferred to your ownership.'}</p><p className="mt-1">{isSeller ? 'The blockchain confirmed the new owner. This product is no longer in your My Products and remains in ownership history.' : 'The ownership change is confirmed on-chain. The product is now available in My Products.'}</p></div></div>}
-              {selected.status === 'accepted' && selected.paymentStatus === 'paid' && selected.ownershipTransferStatus !== 'confirmed' && <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Payment verified. Ownership transfer: {selected.ownershipTransferStatus || 'pending'}.{selected.ownershipTransferError ? ` ${selected.ownershipTransferError}` : ''}</div>}
-                {notice && <p role="status" className={`rounded-lg border p-3 text-sm ${selected.status === 'completed' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>{notice}</p>}
-              {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
+
+              <TransferStatusBanner
+                transfer={selected}
+                isSeller={isSeller}
+                busy={busy}
+                verifying={verifying}
+                retrying={retrying}
+                error={error}
+                onRetryTransfer={retryAutomaticTransfer}
+              />
+
               {confirmingAccept && <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><h3 className="text-sm font-bold text-slate-900">Confirm acceptance</h3><p className="mt-1 text-xs leading-5 text-slate-700">Accept the request for {selected.product?.productName} at {selected.currency} {Number(selected.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}? This records your response only; it does not transfer the product or collect payment.</p><div className="mt-3 flex gap-2"><button type="button" disabled={busy} onClick={() => setConfirmingAccept(false)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700">Back</button><button type="button" disabled={busy} onClick={() => updateRequest('accept')} className="h-9 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white">{busy ? 'Saving…' : 'Confirm Accept'}</button></div></div>}
-              {!confirmingAccept && selected.status === 'completed' && <button type="button" onClick={() => { setSelected(null); setConfirmingAccept(false); setNotice(''); }} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700"><Check size={16} /> Done</button>}
-              {!confirmingAccept && selected.status !== 'completed' && <div className="flex flex-wrap gap-2 pt-1">
+              {!confirmingAccept && (selected.status === 'completed' || selected.ownershipTransferStatus === 'confirmed') && <button type="button" onClick={() => { setSelected(null); setConfirmingAccept(false); setError(''); setNotice(''); }} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700"><Check size={16} /> Done</button>}
+              {!confirmingAccept && selected.status !== 'completed' && selected.ownershipTransferStatus !== 'confirmed' && <div className="flex flex-wrap gap-2 pt-1">
                 {!isSeller && selected.status === 'pending' && <><button type="button" disabled={busy} onClick={() => setConfirmingAccept(true)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700"><Check size={16} /> Accept Transfer</button><button type="button" disabled={busy} onClick={() => updateRequest('reject')} className="inline-flex h-10 items-center gap-2 rounded-lg border border-rose-200 bg-white px-4 text-sm font-bold text-rose-700 hover:bg-rose-50"><X size={16} /> Reject</button></>}
                 {isSeller && selected.status === 'pending' && <button type="button" disabled={busy} onClick={() => updateRequest('cancel')} className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel request</button>}
-                {!isSeller && selected.status === 'accepted' && selected.paymentStatus !== 'paid' && <button type="button" disabled={busy} onClick={payWithRazorpay} className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-bold text-white hover:bg-emerald-700">{busy && <LoaderCircle size={16} className="animate-spin" />}{busy ? 'Processing payment…' : 'Pay with UPI (Test Mode)'}</button>}
-                {!isSeller && selected.status === 'accepted' && selected.paymentStatus === 'paid' && selected.ownershipTransferStatus !== 'confirmed' && <button type="button" disabled={busy} onClick={retryAutomaticTransfer} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700">{busy && <LoaderCircle size={16} className="animate-spin" />}{busy ? 'Retrying transfer…' : 'Retry ownership transfer'}</button>}
-                {!isSeller && selected.status === 'accepted' && selected.paymentStatus === 'paid' && selected.ownershipTransferStatus === 'confirmed' && <p role="status" className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-50 px-4 text-sm font-bold text-emerald-800"><Check size={16} /> Ownership confirmed — product is yours.</p>}
-                {isSeller && selected.status === 'accepted' && selected.paymentStatus !== 'paid' && <button type="button" disabled className="inline-flex h-10 cursor-not-allowed items-center gap-2 rounded-lg bg-slate-300 px-4 text-sm font-bold text-white opacity-70" title="Waiting for the buyer's verified Razorpay test payment"><LoaderCircle size={16} className="animate-spin" /> Awaiting buyer payment</button>}
-                {isSeller && selected.status === 'accepted' && selected.paymentStatus === 'paid' && selected.ownershipTransferStatus !== 'confirmed' && <span className="inline-flex h-10 items-center gap-2 rounded-lg bg-amber-50 px-4 text-sm font-bold text-amber-900"><Clock3 size={16} /> Automatic transfer pending</span>}
+                {!isSeller && selected.status === 'accepted' && selected.paymentStatus !== 'paid' && <button type="button" disabled={busy || verifying} onClick={payWithRazorpay} className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-bold text-white hover:bg-emerald-700">{(busy || verifying) && <LoaderCircle size={16} className="animate-spin" />}{verifying ? 'Verifying payment…' : busy ? 'Preparing payment…' : 'Pay now (UPI)'}</button>}
+                {!isSeller && selected.status === 'accepted' && selected.paymentStatus === 'paid' && selected.ownershipTransferStatus !== 'confirmed' && <button type="button" disabled={busy || retrying} onClick={retryAutomaticTransfer} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700">{(busy || retrying) && <LoaderCircle size={16} className="animate-spin" />}{retrying ? 'Retrying transfer…' : 'Retry ownership transfer'}</button>}
+                {isSeller && selected.status === 'accepted' && selected.paymentStatus !== 'paid' && <button type="button" disabled className="inline-flex h-10 cursor-not-allowed items-center gap-2 rounded-lg bg-slate-300 px-4 text-sm font-bold text-white opacity-70" title="Waiting for the buyer's verified payment"><LoaderCircle size={16} className="animate-spin" /> Awaiting buyer payment</button>}
+                {isSeller && selected.status === 'accepted' && selected.paymentStatus === 'paid' && <span className="inline-flex h-10 items-center gap-2 rounded-lg bg-amber-50 px-4 text-sm font-bold text-amber-900"><Clock3 size={16} /> Automatic transfer pending</span>}
               </div>}
             </div>
           </>}
@@ -386,6 +381,115 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
       </div>}
     </PageLayout>
   );
+}
+
+function TransferStatusBanner({ transfer, isSeller, busy, verifying, retrying, error, onRetryTransfer }) {
+  if (verifying) {
+    return (
+      <div role="status" className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/90 p-4 text-sm font-medium text-blue-950 shadow-sm transition-all">
+        <LoaderCircle size={18} className="shrink-0 animate-spin text-blue-600" />
+        <p>Verifying payment...</p>
+      </div>
+    );
+  }
+
+  if (retrying) {
+    return (
+      <div role="status" className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/90 p-4 text-sm font-medium text-blue-950 shadow-sm transition-all">
+        <LoaderCircle size={18} className="shrink-0 animate-spin text-blue-600" />
+        <p>Retrying ownership transfer...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    const canRetryTransfer = !isSeller && transfer?.status === 'accepted' && transfer?.paymentStatus === 'paid' && transfer?.ownershipTransferStatus !== 'confirmed';
+    return (
+      <div role="alert" className="flex flex-col gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900 shadow-sm transition-all sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3 min-w-0">
+          <AlertCircle size={18} className="mt-0.5 shrink-0 text-rose-600" />
+          <p className="font-medium break-words">{error}</p>
+        </div>
+        {canRetryTransfer && onRetryTransfer && (
+          <button
+            type="button"
+            disabled={busy || retrying}
+            onClick={onRetryTransfer}
+            className="mt-2 inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-3 text-xs font-bold text-white transition hover:bg-rose-700 disabled:opacity-50 sm:mt-0"
+          >
+            Retry transfer
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (transfer.status === 'completed' || transfer.ownershipTransferStatus === 'confirmed') {
+    return (
+      <div role="status" className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 shadow-sm transition-all">
+        <Check size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+        <div>
+          <p className="font-bold">Ownership transferred successfully.</p>
+          <p className="mt-1 text-xs text-emerald-800">
+            {isSeller
+              ? 'The blockchain confirmed the new owner. This product is no longer in your active products and remains in ownership history.'
+              : 'The ownership change is confirmed on-chain. The product is now available in My Products.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (transfer.status === 'accepted' && transfer.paymentStatus === 'paid') {
+    return (
+      <div role="status" className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-950 shadow-sm transition-all">
+        <Clock3 size={18} className="shrink-0 text-amber-600" />
+        <p>Payment verified. Ownership transfer is pending blockchain confirmation.</p>
+      </div>
+    );
+  }
+
+  if (transfer.status === 'accepted' && transfer.paymentStatus !== 'paid') {
+    return (
+      <div role="status" className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-950 shadow-sm transition-all">
+        {busy ? <LoaderCircle size={18} className="shrink-0 animate-spin text-amber-600" /> : <Clock3 size={18} className="shrink-0 text-amber-600" />}
+        <p>Payment is pending confirmation.</p>
+      </div>
+    );
+  }
+
+  if (transfer.status === 'pending') {
+    return (
+      <div role="status" className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 shadow-sm transition-all">
+        <ShieldCheck size={18} className="shrink-0 text-blue-600" />
+        <p>
+          {isSeller
+            ? 'Transfer request sent. Waiting for the buyer to review and accept.'
+            : 'Transfer request received. Review product passport details and accept or reject.'}
+        </p>
+      </div>
+    );
+  }
+
+  if (transfer.status === 'rejected') {
+    return (
+      <div role="status" className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 shadow-sm transition-all">
+        <X size={18} className="shrink-0 text-rose-500" />
+        <p>This transfer request was rejected.</p>
+      </div>
+    );
+  }
+
+  if (transfer.status === 'cancelled') {
+    return (
+      <div role="status" className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 shadow-sm transition-all">
+        <X size={18} className="shrink-0 text-slate-400" />
+        <p>This transfer request was cancelled.</p>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function Info({ label, value }) {

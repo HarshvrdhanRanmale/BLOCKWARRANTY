@@ -141,23 +141,37 @@ app.get('/api/product-image', async (req, res) => {
   }
 });
 
-// Invoice extraction is deliberately stateless and does not use MongoDB.
+const { prepareDocumentForExtraction } = require('./services/documentParser');
+
+// Invoice extraction supports JPEG, PNG, WebP, HEIC/HEIF, and PDF text extraction.
 app.post('/api/extract-invoice', async (req, res) => {
   const { fileName, fileType, fileData } = req.body || {};
-  const supportedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
-  if (fileType === 'application/pdf') {
-    return res.status(415).json({
-      message: 'Groq image extraction currently accepts JPG or PNG invoices. Please convert this PDF to an image and upload it again.'
+  if (typeof fileData !== 'string' || !fileData) {
+    return res.status(400).json({ message: 'Please upload an invoice document (JPG, PNG, WebP, HEIC, or PDF).' });
+  }
+
+  let buffer;
+  try {
+    buffer = Buffer.from(fileData, 'base64');
+  } catch {
+    return res.status(400).json({ message: 'The uploaded file data could not be decoded.' });
+  }
+
+  let prepared;
+  try {
+    prepared = await prepareDocumentForExtraction(buffer, fileType, fileName);
+  } catch (prepError) {
+    return res.status(prepError.status || 400).json({ message: prepError.message || 'The invoice document is invalid or unsupported.' });
+  }
+
+  if (prepared.mode === 'unsupported_scanned_pdf') {
+    return res.status(422).json({
+      message: prepared.message,
+      isScannedPdf: true
     });
   }
-  if (!supportedTypes.includes(fileType) || typeof fileData !== 'string' || !fileData) {
-    return res.status(400).json({ message: 'Upload a JPG, PNG, or WEBP invoice image.' });
-  }
-  const normalizedFileType = fileType === 'image/jpg' ? 'image/jpeg' : fileType;
-  if (Buffer.byteLength(fileData, 'base64') > 10 * 1024 * 1024) {
-    return res.status(413).json({ message: 'Invoice image must be 10 MB or smaller.' });
-  }
+
   if (!process.env.GROQ_API_KEY) {
     return res.status(503).json({ message: 'Groq invoice extraction needs your settings. Fill in GROQ_API_KEY and GROQ_MODEL in backend/.env, then restart the backend and retry.' });
   }
@@ -171,6 +185,22 @@ app.post('/api/extract-invoice', async (req, res) => {
   const timeout = setTimeout(() => controller.abort(), 45000);
 
   try {
+    const groqMessages = prepared.mode === 'text'
+      ? [{
+          role: 'user',
+          content: `Extract the invoice details from this text extracted from a PDF invoice:\n\n${prepared.text}\n\nReturn one JSON object with exactly these string fields: ${fields.join(', ')}. Return only values clearly supported by the invoice. Use an empty string for missing or uncertain values. Dates must be YYYY-MM-DD. Numeric values should contain digits and a decimal point only. Choose category from Laptop, Smartphone, Headphones, Smartwatch, Tablet, Electronics, Software, or Other. Warranty period should be a number and warrantyUnit should be Years or Months.`
+        }]
+      : [{
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Extract the invoice details from this image. Return one JSON object with exactly these string fields: ${fields.join(', ')}. Return only values clearly supported by the invoice. Use an empty string for missing or uncertain values. Dates must be YYYY-MM-DD. Numeric values should contain digits and a decimal point only. Choose category from Laptop, Smartphone, Headphones, Smartwatch, Tablet, Electronics, Software, or Other. Warranty period should be a number and warrantyUnit should be Years or Months.`
+            },
+            { type: 'image_url', image_url: { url: `data:${prepared.mimeType};base64,${prepared.base64}` } }
+          ]
+        }];
+
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       signal: controller.signal,
@@ -182,16 +212,7 @@ app.post('/api/extract-invoice', async (req, res) => {
         model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
         temperature: 0,
         response_format: { type: 'json_object' },
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `Extract the invoice details from this image. Return one JSON object with exactly these string fields: ${fields.join(', ')}. Return only values clearly supported by the invoice. Use an empty string for missing or uncertain values. Dates must be YYYY-MM-DD. Numeric values should contain digits and a decimal point only. Choose category from Laptop, Smartphone, Headphones, Smartwatch, Tablet, Electronics, Software, or Other. Warranty period should be a number and warrantyUnit should be Years or Months.`
-            },
-              { type: 'image_url', image_url: { url: `data:${normalizedFileType};base64,${fileData}` } }
-          ]
-        }]
+        messages: groqMessages
       })
     });
     const result = await groqResponse.json().catch(() => ({}));
@@ -211,7 +232,7 @@ app.post('/api/extract-invoice', async (req, res) => {
     const content = result.choices?.[0]?.message?.content;
     const extractedData = typeof content === 'string' ? JSON.parse(content) : null;
     if (!extractedData || typeof extractedData !== 'object') throw new Error('Groq returned no invoice fields.');
-    return res.json({ message: 'Invoice details extracted.', fileName: fileName || '', fileType: normalizedFileType, extractedData });
+    return res.json({ message: 'Invoice details extracted.', fileName: fileName || '', fileType: fileType, extractedData });
   } catch (error) {
     console.error('Groq invoice request failed:', error.name, error.message);
     const message = error.name === 'AbortError'
