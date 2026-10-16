@@ -10,6 +10,7 @@
     "chain:start": "ganache --chain.chainId 31337 --wallet.deterministic --database.dbPath ./chain-data-demo --server.host 127.0.0.1 --server.port 8545",
     "chain:deploy": "node scripts/deploy-contract.js",
     "chain:deploy:local": "node scripts/deploy-local-contract.js",
+    "chain:migrate": "node scripts/migrate-products.js",
     "test:contracts": "jest --runInBand test/blockchain.test.js",
     "test:phase2": "echo \"Phase 2 tests pass\"",
     "test:phase3": "echo \"Phase 3 tests pass\"",
@@ -31,9 +32,11 @@
     "ethers": "^6.17.0",
     "express": "^4.21.0",
     "ganache": "^7.9.2",
+    "google-auth-library": "^11.3.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^9.10.3",
+    "razorpay": "^2.9.8",
     "solc": "^0.8.37"
   },
   "devDependencies": {

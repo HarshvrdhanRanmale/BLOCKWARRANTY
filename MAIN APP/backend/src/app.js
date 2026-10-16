@@ -7,10 +7,14 @@ const productRoutes = require('./routes/productRoutes');
 const publicProductRoutes = require('./routes/publicProductRoutes');
 const serviceRoutes = require('./routes/serviceRoutes');
 const blockchainRoutes = require('./routes/blockchainRoutes').router;
+const transferRoutes = require('./routes/transferRoutes');
 const config = require('./config/env');
 
 const app = express();
 const appOrigins = [config.FRONTEND_URL, config.PUBLIC_DEMO_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'].filter(Boolean);
+const isLocalDevOrigin = (origin) => (
+  config.NODE_ENV !== 'production' && /^http:\/\/(?:localhost|127\.0\.0\.1):\d+$/i.test(origin || '')
+);
 // Embedded wallets run their JSON-RPC client inside Web3Auth / MetaMask hosted
 // frames. The provider can select a regional or versioned subdomain, so allow
 // only their HTTPS domains instead of pinning one frame URL.
@@ -18,7 +22,7 @@ const isEmbeddedWalletOrigin = (origin) => (
   /^https:\/\/(?:[a-z0-9-]+\.)*(?:web3auth\.io|metamask\.io)$/i.test(origin || '')
 );
 const isQuickTunnelOrigin = (origin) => config.NODE_ENV !== 'production' && /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/i.test(origin || '');
-const isAllowedAppOrigin = (origin) => appOrigins.includes(origin) || isEmbeddedWalletOrigin(origin) || isQuickTunnelOrigin(origin);
+const isAllowedAppOrigin = (origin) => appOrigins.includes(origin) || isLocalDevOrigin(origin) || isEmbeddedWalletOrigin(origin) || isQuickTunnelOrigin(origin);
 
 // Security headers
 app.use(helmet());
@@ -106,6 +110,7 @@ app.get('/health/ready', (req, res) => {
 
 // Authentication routes
 app.use('/api/auth', authRoutes);
+app.use('/api/transfers', transferRoutes);
 app.use('/api/public/products', publicProductRoutes);
 app.use('/api/products/:productId/services', serviceRoutes);
 app.use('/api/products/:productId/blockchain', blockchainRoutes);

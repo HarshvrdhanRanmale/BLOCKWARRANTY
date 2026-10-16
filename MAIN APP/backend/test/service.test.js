@@ -1,6 +1,7 @@
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const os = require('os');
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const app = require('../src/app');
@@ -17,7 +18,9 @@ const tinyPng = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString('base64'
 
 beforeAll(async () => {
   mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
+  // runtimeAdapters: mongodb driver v7 would otherwise use dynamic import('os'),
+  // which Jest's VM rejects without --experimental-vm-modules (breaks handshake metadata)
+  await mongoose.connect(mongod.getUri(), { runtimeAdapters: { os } });
 });
 
 afterAll(async () => {

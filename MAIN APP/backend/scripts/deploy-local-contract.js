@@ -12,8 +12,27 @@ const { artifact, config } = require('../src/services/blockchain');
   }
 
   const signer = await provider.getSigner(0);
-  const factory = new ethers.ContractFactory(artifact.abi, `0x${artifact.evm.bytecode.object}`, signer);
-  const contract = await factory.deploy();
+
+  // The BlockWarranty constructor now requires an initial relayer address.
+  // Prefer RELAYER_PRIVATE_KEY (matches the backend relayer service exactly);
+  // fall back to RELAYER_ADDRESS, then to the deployer address with a warning.
+  let relayerAddress;
+  if (process.env.RELAYER_PRIVATE_KEY) {
+    try {
+      relayerAddress = new ethers.Wallet(process.env.RELAYER_PRIVATE_KEY).address;
+    } catch {
+      throw new Error('RELAYER_PRIVATE_KEY in backend/.env is not a valid private key.');
+    }
+  } else if (process.env.RELAYER_ADDRESS) {
+    if (!ethers.isAddress(process.env.RELAYER_ADDRESS)) throw new Error('RELAYER_ADDRESS is not a valid address.');
+    relayerAddress = process.env.RELAYER_ADDRESS;
+  } else {
+    relayerAddress = await signer.getAddress();
+    console.warn(`Warning: RELAYER_PRIVATE_KEY not set — using the deployer ${relayerAddress} as initial relayer. Automatic transfers will be disabled until a dedicated relayer key is configured.`);
+  }
+
+  const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, signer);
+  const contract = await factory.deploy(relayerAddress, config.CONTRACT_ADDRESS || ethers.ZeroAddress);
   await contract.waitForDeployment();
   const address = await contract.getAddress();
 
@@ -29,7 +48,7 @@ const { artifact, config } = require('../src/services/blockchain');
 
   writeValue(backendEnv, 'CONTRACT_ADDRESS', address);
   writeValue(frontendEnv, 'VITE_BLOCKWARRANTY_CONTRACT_ADDRESS', address);
-  console.log(`Local demo contract deployed at ${address}. Restart the backend to load it.`);
+  console.log(`Local demo contract deployed at ${address} (initial relayer: ${relayerAddress}). Restart the backend to load it.`);
 })().catch((error) => {
   console.error(error.message);
   process.exitCode = 1;

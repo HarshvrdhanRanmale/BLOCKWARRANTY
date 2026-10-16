@@ -90,7 +90,9 @@ describe("BlockWarranty", function () {
     BlockWarranty =
       await ethers.getContractFactory("BlockWarranty");
 
-    contract = await BlockWarranty.deploy();
+    // Deploy with `serviceProvider` acting as the authorized relayer wallet so
+    // the relayer-transfer tests can exercise the operator path.
+    contract = await BlockWarranty.deploy(serviceProvider.address, owner.address);
 
     await contract.waitForDeployment();
   });
@@ -1054,6 +1056,95 @@ describe("BlockWarranty", function () {
       ).to.be.revertedWith(
         "Not product owner"
       );
+    });
+  });
+
+  // ============================================================
+  // RELAYER (OPERATOR) AUTHORIZATION
+  // ============================================================
+
+  describe("Relayer authorization", function () {
+    beforeEach(async function () {
+      await registerProduct();
+    });
+
+    it("sets the relayer at deployment and exposes the contract owner", async function () {
+      expect(await contract.relayer()).to.equal(serviceProvider.address);
+      expect(await contract.contractOwner()).to.equal(owner.address);
+    });
+
+    it("lets the authorized relayer transfer ownership and emits both events", async function () {
+      const tx = await contract
+        .connect(serviceProvider)
+        .transferOwnershipByRelayer(productKey, newOwner.address);
+      const receipt = await tx.wait();
+
+      const canonical = receipt.logs
+        .map((log) => { try { return contract.interface.parseLog(log); } catch { return null; } })
+        .find((log) => log?.name === "OwnershipTransferred");
+      expect(canonical, "OwnershipTransferred event").to.not.equal(undefined);
+      expect(canonical.args.previousOwner).to.equal(owner.address);
+      expect(canonical.args.newOwner).to.equal(newOwner.address);
+
+      const relayerEvent = receipt.logs
+        .map((log) => { try { return contract.interface.parseLog(log); } catch { return null; } })
+        .find((log) => log?.name === "OwnershipTransferredByRelayer");
+      expect(relayerEvent, "OwnershipTransferredByRelayer event").to.not.equal(undefined);
+      expect(relayerEvent.args.relayer).to.equal(serviceProvider.address);
+
+      const state = await contract.getProduct(productKey);
+      expect(state.currentOwner).to.equal(newOwner.address);
+    });
+
+    it("rejects relayer transfer from a non-relayer wallet", async function () {
+      await expect(
+        contract
+          .connect(attacker)
+          .transferOwnershipByRelayer(productKey, newOwner.address)
+      ).to.be.revertedWith("Not authorized relayer");
+    });
+
+    it("rejects relayer transfer to the zero address", async function () {
+      await expect(
+        contract
+          .connect(serviceProvider)
+          .transferOwnershipByRelayer(productKey, ethers.ZeroAddress)
+      ).to.be.revertedWith("Invalid new owner");
+    });
+
+    it("only the contract owner can update the relayer", async function () {
+      await expect(
+        contract.connect(attacker).setRelayer(attacker.address)
+      ).to.be.revertedWith("Not contract owner");
+
+      await expect(contract.connect(owner).setRelayer(attacker.address))
+        .to.emit(contract, "RelayerUpdated")
+        .withArgs(serviceProvider.address, attacker.address);
+      expect(await contract.relayer()).to.equal(attacker.address);
+    });
+  });
+
+  describe("Legacy product migration", function () {
+    it("imports product, service, and warranty history and keeps the original owner", async function () {
+      const legacy = await BlockWarranty.deploy(serviceProvider.address, owner.address);
+      await legacy.waitForDeployment();
+      await legacy.connect(owner).registerProduct(productKey, serialHash, purchaseDate, warrantyStart, warrantyExpiry, metadataHash);
+      await legacy.connect(owner).recordService(productKey, serviceHash);
+      await legacy.connect(owner).recordWarrantyClaim(productKey, claimHash, true);
+
+      const migrated = await BlockWarranty.deploy(serviceProvider.address, await legacy.getAddress());
+      await migrated.waitForDeployment();
+      await expect(migrated.connect(attacker).migrateProduct(productKey)).to.be.revertedWith("Not contract owner");
+      await migrated.migrateProduct(productKey);
+
+      const product = await migrated.getProduct(productKey);
+      expect(product.currentOwner).to.equal(owner.address);
+      expect(product.serialNumberHash).to.equal(serialHash);
+      expect(await migrated.getServiceCount(productKey)).to.equal(1);
+      expect((await migrated.getService(productKey, 0)).descriptionHash).to.equal(serviceHash);
+      expect(await migrated.getClaimCount(productKey)).to.equal(1);
+      expect((await migrated.getWarrantyClaim(productKey, 0)).descriptionHash).to.equal(claimHash);
+      await expect(migrated.migrateProduct(productKey)).to.be.revertedWith("Product already migrated");
     });
   });
 });

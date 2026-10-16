@@ -14,5 +14,16 @@ module.exports = {
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
   PUBLIC_DEMO_ORIGIN: process.env.PUBLIC_DEMO_ORIGIN || '',
   CHALLENGE_TTL_MS: 10 * 60 * 1000, // 10 minutes
-  MONGODB_URI: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/blockwarranty?directConnection=true'
+  MONGODB_URI: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/blockwarranty?directConnection=true',
+  // Razorpay Test Mode (UPI). The KEY_SECRET is server-side only and is never
+  // sent to the frontend. The KEY_ID is a publishable test key.
+  RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || '',
+  RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || '',
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
+  // Relayer wallet (server-side only). A dedicated, low-value Sepolia wallet
+  // authorized on-chain (via setRelayer) to submit transferOwnershipByRelayer
+  // after a verified payment. NEVER a user wallet. Left blank => automatic
+  // relayer transfer is disabled and the manual seller MetaMask flow is used.
+  RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY || '',
+  SEPOLIA_DEPLOYER_PRIVATE_KEY: process.env.SEPOLIA_DEPLOYER_PRIVATE_KEY || '',
 };

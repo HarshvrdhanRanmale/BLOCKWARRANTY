@@ -73,32 +73,101 @@ function identityProjection(product, registeredAt) {
   };
 }
 
-async function ownershipEvents(product) {
-  try {
-    const contract = contractAt();
-    const pKey = productKey(product.productId);
-    const filter = contract.filters.OwnershipTransferred(pKey);
-    const fromBlock = 11845000;
-    const logs = await contract.queryFilter(filter, fromBlock, 'latest').catch(() => []);
+function isoDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
 
-    return await Promise.all(
-      logs.map(async (log) => {
-        const block = await log.getBlock().catch(() => null);
-        return {
-          date: block?.timestamp ? new Date(block.timestamp * 1000).toISOString() : null,
-          title: 'Ownership transferred',
-          txHash: log.transactionHash,
-        };
-      })
-    );
-  } catch {
-    return [];
+function validWarrantyDate(value) {
+  const parsed = isoDate(value);
+  return parsed && new Date(parsed).getUTCFullYear() > 1970 ? parsed : null;
+}
+
+function addWarrantyPeriod(start, period, unit) {
+  const expiry = new Date(start);
+  if (unit === 'Days') expiry.setUTCDate(expiry.getUTCDate() + period);
+  else if (unit === 'Months') {
+    const day = expiry.getUTCDate();
+    expiry.setUTCDate(1);
+    expiry.setUTCMonth(expiry.getUTCMonth() + period);
+    const lastDay = new Date(Date.UTC(expiry.getUTCFullYear(), expiry.getUTCMonth() + 1, 0)).getUTCDate();
+    expiry.setUTCDate(Math.min(day, lastDay));
+  } else if (unit === 'Years') {
+    const month = expiry.getUTCMonth();
+    const day = expiry.getUTCDate();
+    expiry.setUTCDate(1);
+    expiry.setUTCFullYear(expiry.getUTCFullYear() + period);
+    expiry.setUTCMonth(month);
+    const lastDay = new Date(Date.UTC(expiry.getUTCFullYear(), month + 1, 0)).getUTCDate();
+    expiry.setUTCDate(Math.min(day, lastDay));
   }
+  return Number.isNaN(expiry.getTime()) ? null : expiry.toISOString();
+}
+
+function warrantyProjection(product, chainWarranty, now = Date.now()) {
+  const invoiceData = product.invoiceExtractedData || {};
+  const hasRegisteredPeriod = product.warrantyPeriod !== null && product.warrantyPeriod !== undefined && product.warrantyPeriod !== '';
+  const rawPeriod = hasRegisteredPeriod ? product.warrantyPeriod : invoiceData.warrantyPeriod;
+  const period = rawPeriod === null || rawPeriod === undefined || rawPeriod === '' ? null : Number(rawPeriod);
+  const periodIsValid = period !== null && Number.isFinite(period) && period > 0;
+  const rawUnit = hasRegisteredPeriod ? product.warrantyUnit : (invoiceData.warrantyUnit || product.warrantyUnit);
+  const unit = ['Days', 'Months', 'Years'].find((option) => option.toLowerCase() === String(rawUnit || '').toLowerCase()) || null;
+  const startDate = periodIsValid
+    ? (validWarrantyDate(product.purchaseDate || invoiceData.purchaseDate) || validWarrantyDate(chainWarranty.startDate))
+    : null;
+  let expiryDate = null;
+
+  if (startDate && periodIsValid && unit) expiryDate = addWarrantyPeriod(startDate, period, unit);
+  if (periodIsValid && !expiryDate) expiryDate = validWarrantyDate(chainWarranty.expiryDate);
+
+  const detailsAvailable = Boolean(startDate && expiryDate);
+  const active = detailsAvailable ? now <= new Date(expiryDate).getTime() : Boolean(chainWarranty.verified && chainWarranty.active && periodIsValid);
+  return {
+    ...chainWarranty,
+    status: periodIsValid && (detailsAvailable || chainWarranty.verified) ? (active ? 'active' : 'expired') : 'not-configured',
+    startDate,
+    expiryDate,
+    active,
+    warrantyPeriod: periodIsValid ? period : null,
+    warrantyUnit: periodIsValid ? unit : null,
+  };
+}
+
+function publicOwnershipHistory(product) {
+  return (product.ownershipHistory || [])
+    .filter((entry) => entry && entry.txHash)
+    .map((entry) => ({
+      date: isoDate(entry.transferredAt),
+      fromWallet: entry.from || null,
+      toWallet: entry.to || null,
+      title: 'Ownership transferred on-chain',
+      txHash: entry.txHash,
+    }))
+    .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+}
+
+function publicTimeline(product, warranty, serviceHistory = []) {
+  const registeredAt = isoDate(warranty.registeredAt) || isoDate(product.createdAt);
+  return [
+    ...publicOwnershipHistory(product),
+    ...serviceHistory.filter((item) => item.blockchainStatus === 'confirmed').map((item) => ({
+      type: item.type,
+      date: isoDate(item.date),
+      title: item.type === 'warranty-claim'
+        ? 'Warranty claim recorded on blockchain'
+        : `Service recorded on blockchain${item.serviceType ? ` · ${item.serviceType}` : ''}`,
+      txHash: item.txHash,
+    })),
+    ...(registeredAt ? [{ date: registeredAt, title: warranty.verified ? 'Product registered on blockchain' : 'Product registered in BlockWarranty' }] : []),
+  ].filter((item) => item.date).sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
 async function publicProjection(product, type = 'passport') {
-  const warranty = await chainProjection(product);
-  const identity = identityProjection(product, warranty.registeredAt);
+  const chainWarranty = await chainProjection(product);
+  const warranty = warrantyProjection(product, chainWarranty);
+  const registeredAt = isoDate(warranty.registeredAt) || isoDate(product.createdAt);
+  const identity = identityProjection(product, registeredAt);
   const purchase = {
     purchaseDate: product.purchaseDate || null,
     price: null // Never expose private price or invoice publicly
@@ -117,22 +186,37 @@ async function publicProjection(product, type = 'passport') {
     return { product: identity, warranty, registrationStatus: 'registered', verification };
   }
 
-  const [services, claims, history] = await Promise.all([
-    ServiceRecord.find({ productId: product.productId, blockchainStatus: 'confirmed' }).sort({ serviceDate: -1 }).lean(),
+  const [services, claims] = await Promise.all([
+    ServiceRecord.find({
+      productId: product.productId,
+      $or: [{ blockchainStatus: 'confirmed' }, { documentId: { $ne: null } }],
+    }).sort({ serviceDate: -1, createdAt: -1 }).lean(),
     WarrantyClaim.find({ productId: product.productId, blockchainStatus: 'confirmed' }).sort({ claimDate: -1 }).lean(),
-    warranty.verified ? ownershipEvents(product) : Promise.resolve([])
   ]);
+
+  const history = publicOwnershipHistory(product);
 
   const serviceHistory = [
     ...services.map((x) => ({
       type: 'service',
+      serviceId: x.serviceId,
       date: x.serviceDate || x.createdAt,
       serviceType: x.serviceType,
       serviceCenter: x.serviceCenterName || 'Authorized Service Provider',
       issue: x.issueReported,
+      diagnosis: x.diagnosis,
       workPerformed: x.workPerformed,
-      blockchainStatus: 'confirmed',
+      partsReplaced: x.partsReplaced || [],
+      totalCost: x.totalCost,
+      currency: x.currency,
+      blockchainStatus: x.blockchainStatus,
+      verified: x.blockchainStatus === 'confirmed' && Boolean(x.txHash),
       txHash: x.txHash,
+      documentName: x.documentName || '',
+      documentHash: x.documentHash || '',
+      documentUrl: x.documentId && x.serviceId
+        ? `/api/public/products/${encodeURIComponent(product.publicId || product.productId)}/services/${encodeURIComponent(x.serviceId)}/document`
+        : null,
     })),
     ...claims.map((x) => ({
       type: 'warranty-claim',
@@ -141,14 +225,12 @@ async function publicProjection(product, type = 'passport') {
       resolution: x.resolution,
       claimStatus: x.claimStatus,
       blockchainStatus: 'confirmed',
+      verified: true,
       txHash: x.txHash,
     })),
   ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
-  const timeline = [
-    ...history,
-    ...(identity.registeredAt ? [{ date: identity.registeredAt, title: 'Product registered on blockchain' }] : [])
-  ].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const timeline = publicTimeline(product, warranty, serviceHistory);
 
   return { product: identity, purchase, warranty, ownership: { history }, serviceHistory, timeline, verification };
 }
@@ -189,6 +271,38 @@ router.get('/:publicId/invoice', (_req, res) => {
   res.status(404).json({ message: 'Invoices are private and are not available through public passport links.' });
 });
 
+router.get('/:publicId/services/:serviceId/document', async (req, res) => {
+  try {
+    const product = await loadProduct(req, res);
+    if (!product) return;
+    const record = await ServiceRecord.findOne({
+      productId: product.productId,
+      serviceId: String(req.params.serviceId || '').trim(),
+    }).lean();
+    if (!record?.documentId) return res.status(404).json({ message: 'No public service document is available.' });
+
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'serviceDocuments' });
+    const files = await bucket.find({
+      _id: record.documentId,
+      'metadata.productId': product.productId,
+      'metadata.serviceId': record.serviceId,
+    }).toArray();
+    if (!files.length) return res.status(404).json({ message: 'Service document not found.' });
+
+    const mimeType = record.documentMimeType || files[0].contentType || 'application/octet-stream';
+    const viewable = mimeType === 'application/pdf' || (mimeType.startsWith('image/') && mimeType !== 'image/svg+xml');
+    const disposition = req.query.download === '1' || !viewable ? 'attachment' : 'inline';
+    res.set('Content-Type', mimeType);
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.set('Content-Disposition', `${disposition}; filename="${encodeURIComponent(record.documentName || files[0].filename)}"`);
+    return bucket.openDownloadStream(record.documentId).pipe(res);
+  } catch (error) {
+    console.error('Public service document download failed:', error.message);
+    if (!res.headersSent) return res.status(500).json({ message: 'The service document could not be retrieved.' });
+  }
+});
+
 router.get('/:publicId', async (req, res) => {
   try {
     const product = await loadProduct(req, res);
@@ -200,3 +314,6 @@ router.get('/:publicId', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.publicOwnershipHistory = publicOwnershipHistory;
+module.exports.publicTimeline = publicTimeline;
+module.exports.warrantyProjection = warrantyProjection;

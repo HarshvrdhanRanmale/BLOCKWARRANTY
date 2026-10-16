@@ -10,7 +10,6 @@ router.post('/logout', authController.logout);
 
 // Protected endpoints
 router.get('/me', authenticate, authController.getMe);
-router.patch('/profile', authenticate, authController.updateProfile);
-router.post('/profile', authenticate, authController.updateProfile);
+router.post('/google-profile', authenticate, authController.linkGoogleProfile);
 
 module.exports = router;

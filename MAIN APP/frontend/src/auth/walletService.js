@@ -70,12 +70,9 @@ export async function signMessage(walletAddress, message) {
  * @param {string} walletAddress
  * @param {string} message
  * @param {string} signature
- * @param {{ name?: string, email?: string }} [userInfo]
  */
-export async function verifySignatureWithBackend(walletAddress, message, signature, userInfo = {}) {
+export async function verifySignatureWithBackend(walletAddress, message, signature) {
   const payload = { walletAddress, message, signature };
-  if (userInfo?.name) payload.name = userInfo.name;
-  if (userInfo?.email) payload.email = userInfo.email;
 
   const response = await fetch(`${API_BASE_URL}/api/auth/verify`, {
     method: "POST",
@@ -101,7 +98,7 @@ export async function verifySignatureWithBackend(walletAddress, message, signatu
  * @param {number} expectedChainId                    Required chain (e.g. 11155111 for Sepolia)
  * @returns {Promise<string>}                         Transaction hash
  */
-export async function sendWalletTransaction(transaction, expectedChainId) {
+export async function sendWalletTransaction(transaction, expectedChainId, expectedWalletAddress = "") {
   const rawProvider = window.ethereum;
   if (!rawProvider) {
     throw new Error("MetaMask is not connected. Please connect your wallet and retry.");
@@ -121,18 +118,22 @@ export async function sendWalletTransaction(transaction, expectedChainId) {
     } catch (switchErr) {
       if (switchErr.code !== 4902) throw switchErr;
       // Chain not added to MetaMask — shouldn't happen for Sepolia, but handle gracefully
-      throw new Error(
-        "Please switch MetaMask to the Sepolia network and retry."
-      );
+      throw new Error("Please add and switch MetaMask to the required network, then retry.", { cause: switchErr });
     }
     // Re-validate after switch
     const updated = await provider.getNetwork();
     if (Number(updated.chainId) !== targetChainId) {
-      throw new Error("Network switch failed. Please switch to Sepolia in MetaMask and retry.");
+      throw new Error("Network switch failed. Please switch MetaMask to the required network and retry.");
     }
   }
 
   const signer = await provider.getSigner();
+  if (expectedWalletAddress) {
+    const activeAddress = (await signer.getAddress()).toLowerCase();
+    if (activeAddress !== expectedWalletAddress.toLowerCase()) {
+      throw new Error("The active MetaMask account changed. Reconnect the intended wallet and retry.");
+    }
+  }
   const tx = await signer.sendTransaction({ to: transaction.to, data: transaction.data });
   return tx.hash;
 }

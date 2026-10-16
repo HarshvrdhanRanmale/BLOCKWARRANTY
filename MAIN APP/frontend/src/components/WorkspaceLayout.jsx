@@ -1,19 +1,14 @@
-import { useState } from "react";
 import Sidebar from "./Sidebar";
+import { useSidebarPreference } from "./useSidebarPreference";
 
 function WorkspaceLayout({ children }) {
-  const [sidebarPinnedOpen, setSidebarPinnedOpen] = useState(false);
-  const [sidebarHovered, setSidebarHovered] = useState(false);
-  const sidebarOpen = sidebarPinnedOpen || sidebarHovered;
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebarPreference();
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A]">
       <Sidebar
-        sidebarOpen={sidebarHovered}
-        setSidebarOpen={setSidebarPinnedOpen}
-        pinnedOpen={sidebarPinnedOpen}
-        onHoverChange={setSidebarHovered}
-        pinnedMode
+        sidebarOpen={sidebarOpen}
+        onToggle={toggleSidebar}
         showBrand
         topOffset={0}
       />

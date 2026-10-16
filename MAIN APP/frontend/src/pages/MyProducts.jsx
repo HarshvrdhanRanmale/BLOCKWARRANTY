@@ -42,8 +42,21 @@ function MyProducts() {
     };
 
     fetchProducts();
+    // Keep My Products in sync after an ownership transfer completes elsewhere
+    // (e.g., the buyer paid and ownership moved on-chain). The backend
+    // re-verifies on-chain ownership on every fetch, so this picks up a newly
+    // received product without a manual page reload or database edits.
+    const handleTransfersChanged = () => { if (isMounted) fetchProducts(); };
+    const handleProductsChanged = () => { if (isMounted) fetchProducts(); };
+    const handleFocus = () => { if (isMounted) fetchProducts(); };
+    window.addEventListener("blockwarranty:transfers-changed", handleTransfersChanged);
+    window.addEventListener("blockwarranty:products-changed", handleProductsChanged);
+    window.addEventListener("focus", handleFocus);
     return () => {
       isMounted = false;
+      window.removeEventListener("blockwarranty:transfers-changed", handleTransfersChanged);
+      window.removeEventListener("blockwarranty:products-changed", handleProductsChanged);
+      window.removeEventListener("focus", handleFocus);
     };
   }, [token]);
 
@@ -76,10 +89,9 @@ function MyProducts() {
       });
   }, [products, search, categoryFilter, sortOrder]);
 
-  const activeCount = products.filter((product) => product.status === "Active").length;
-  const warrantyCount = products.filter(
-    (product) => Number(product.warrantyPeriod) > 0 && product.status === "Active"
-  ).length;
+  const activeProducts = products.filter((product) => ["Active", "Transferred"].includes(product.status || "Active"));
+  const activeCount = activeProducts.length;
+  const warrantyCount = activeProducts.filter((product) => Number(product.warrantyPeriod) > 0).length;
 
   return (
     <WorkspaceLayout>

@@ -16,6 +16,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
+import { useSidebarPreference } from "../components/useSidebarPreference";
 import { useWallet } from "../blockchain/useWallet";
 import {
   registerProductOnChain,
@@ -84,9 +85,7 @@ const createEmptyFormData = () => ({
 
 function RegisterProduct() {
   const { token, signer, isCorrectNetwork, switchToSepolia } = useWallet();
-  const [sidebarPinnedOpen, setSidebarPinnedOpen] = useState(false);
-  const [sidebarHovered, setSidebarHovered] = useState(false);
-  const sidebarOpen = sidebarPinnedOpen || sidebarHovered;
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebarPreference();
 
   const [currentStep, setCurrentStep] = useState(1);
 
@@ -554,6 +553,7 @@ function RegisterProduct() {
       setSuccessMessage(
         `Product registered successfully! Product ID: ${data.product.productId}`
       );
+      window.dispatchEvent(new Event("blockwarranty:products-changed"));
 
       // Reset form
       setFormData(createEmptyFormData());
@@ -571,9 +571,13 @@ function RegisterProduct() {
       if (imageInputRef.current) imageInputRef.current.value = "";
     } catch (error) {
       console.error("Registration error:", error);
+      const transactionHash = error.receipt?.hash || error.transactionHash;
+      const message = error.code === "CALL_EXCEPTION" && error.receipt?.status === 0
+        ? `The blockchain rejected this registration, so no product was saved.${transactionHash ? ` Transaction: ${transactionHash}` : " Check that MetaMask is on Sepolia, then retry."}`
+        : error.shortMessage || error.reason || error.message || "Failed to register product.";
       setBlockchainStatus("failed");
-      setBlockchainMessage(error.message || "Blockchain transaction failed.");
-      setErrorMessage(error.message || "Failed to register product.");
+      setBlockchainMessage(message);
+      setErrorMessage(message);
     }
   };
 
@@ -703,7 +707,7 @@ function RegisterProduct() {
             </Link>
 
             <Link
-              to="/verify"
+              to="/products"
               className="
                 text-sm
                 font-medium
@@ -711,7 +715,7 @@ function RegisterProduct() {
                 hover:text-[#2563EB]
               "
             >
-              Verify
+              View My Products
             </Link>
 
           </nav>
@@ -759,11 +763,8 @@ function RegisterProduct() {
       ===================================================== */}
 
       <Sidebar
-        sidebarOpen={sidebarHovered}
-        setSidebarOpen={setSidebarPinnedOpen}
-        pinnedOpen={sidebarPinnedOpen}
-        onHoverChange={setSidebarHovered}
-        pinnedMode
+        sidebarOpen={sidebarOpen}
+        onToggle={toggleSidebar}
         showBrand
         topOffset={0}
       />

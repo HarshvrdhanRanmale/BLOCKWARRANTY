@@ -26,6 +26,12 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true
     },
+    googleSub: {
+      type: String,
+      default: undefined,
+      unique: true,
+      sparse: true
+    },
     role: {
       type: String,
       enum: ['user', 'admin'],

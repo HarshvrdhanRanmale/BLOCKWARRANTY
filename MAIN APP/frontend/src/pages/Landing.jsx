@@ -33,35 +33,21 @@ function Landing() {
         <div className="flex items-center gap-3">
 
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#8B1E3F] shadow-[0_12px_28px_rgba(139,30,63,0.22)] sm:h-11 sm:w-11">
-            <ShieldCheck
-              size={24}
-              className="text-white"
-            />
+            <ShieldCheck size={24} className="text-white" />
           </div>
 
           <div>
-            <h1 className="text-lg font-black tracking-tight sm:text-xl">
-              BlockWarranty
-            </h1>
-
-            <p className="hidden text-[8px] uppercase tracking-[0.28em] text-[#6B7280] sm:block">
-              Products. People. Protected.
-            </p>
+            <h1 className="text-lg font-black tracking-tight sm:text-xl">BlockWarranty</h1>
+            <p className="hidden text-[8px] uppercase tracking-[0.28em] text-[#6B7280] sm:block">Products. People. Protected.</p>
           </div>
 
         </div>
-
 
         {/* DESKTOP NAVIGATION */}
 
         <div className="hidden items-center gap-5 text-sm font-medium xl:flex">
 
-          <a
-            href="#"
-            className="rounded-full bg-[#F3DDE4] px-6 py-3 text-[#8B1E3F]"
-          >
-            Home
-          </a>
+          <a href="#" className="rounded-full bg-[#F3DDE4] px-6 py-3 text-[#8B1E3F]">Home</a>
 
           <a
             href="#features"
@@ -83,13 +69,6 @@ function Landing() {
           >
             For Owners
           </a>
-
-          <Link
-            to="/verify"
-            className="transition hover:text-[#8B1E3F]"
-          >
-            Verify
-          </Link>
 
           <a
             href="#about"
@@ -215,6 +194,7 @@ function Landing() {
                   font-semibold
                   text-white
                   shadow-[0_18px_35px_rgba(139,30,63,0.18)]
+                  backdrop-blur
                   transition
                   duration-300
                   hover:-translate-y-1
@@ -226,38 +206,7 @@ function Landing() {
 
                 Register a Product
 
-                <ArrowRight
-                  size={17}
-                  className="ml-2 inline"
-                />
-
-              </Link>
-
-
-              <Link
-                to="/verify"
-                className="
-                  rounded-full
-                  border
-                  border-[#E5E0DA]
-                  bg-white/80
-                  px-6
-                  py-3.5
-                  text-center
-                  text-sm
-                  font-semibold
-                  backdrop-blur
-                  transition
-                  duration-300
-                  hover:-translate-y-1
-                  hover:border-[#8B1E3F]
-                  hover:text-[#8B1E3F]
-                  sm:px-7
-                  sm:py-4
-                "
-              >
-
-                Verify a Product
+                <ArrowRight size={17} className="ml-2 inline" />
 
               </Link>
 
@@ -575,7 +524,7 @@ function Landing() {
       <div className="flex items-center gap-1">
 
         <p className="text-[10px] font-bold tracking-tight text-[#171717] sm:text-[11px]">
-          VERIFY PRODUCT
+          PRODUCT PASSPORT
         </p>
 
         <ArrowUpRight
@@ -586,7 +535,7 @@ function Landing() {
       </div>
 
       <p className="mt-1 text-[8px] leading-3 text-[#6B7280] sm:text-[9px]">
-        Authenticity & warranty
+        Warranty & ownership record
       </p>
 
     </div>
@@ -604,7 +553,7 @@ function Landing() {
   <div className="flex items-center justify-between">
 
     <p className="text-[8px] font-medium text-[#6B7280] sm:text-[9px]">
-      Scan to verify
+      Passport link
     </p>
 
     <span
@@ -620,7 +569,7 @@ function Landing() {
         sm:text-[8px]
       "
     >
-      ON-CHAIN
+      SHAREABLE
     </span>
 
   </div>

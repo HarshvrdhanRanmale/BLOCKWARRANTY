@@ -3,11 +3,10 @@ import {
   ArrowLeft, ArrowRightLeft, CalendarDays, CheckCircle2,
   FileText, Package, QrCode, ShieldCheck, Tag, Wallet,
 } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
+import { Link, useParams } from "react-router-dom";
 import WorkspaceLayout from "../components/WorkspaceLayout";
 import ServiceLifecycle from "../components/ServiceLifecycle";
-import TransferOwnershipModal from "../components/TransferOwnershipModal";
 import { useAuthFlow } from "../auth/useAuthFlow";
 import { sendWalletTransaction } from "../auth/walletService";
 import { API_BASE_URL, getToken } from "../lib/api";
@@ -99,6 +98,50 @@ function MoneyField({ label, value, currency }) {
   return <Field label={label} value={shown} />;
 }
 
+function ProductPassportQr({ url }) {
+  const [copied, setCopied] = useState(false);
+  const canvasId = "product-passport-qr";
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  const downloadQr = () => {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.href = canvas.toDataURL("image/png");
+    link.download = "product-passport-qr.png";
+    link.click();
+  };
+
+  return (
+    <div className="rounded-2xl bg-slate-50 p-4 text-center">
+      <p className="text-sm font-bold text-slate-900">Product Passport</p>
+      <div className="mx-auto mt-3 inline-flex rounded-xl bg-white p-3">
+        <QRCodeCanvas id={canvasId} value={url} size={192} level="M" includeMargin />
+      </div>
+      <a href={url} target="_blank" rel="noreferrer" className="mt-3 block truncate text-xs text-blue-700 hover:underline">
+        {url}
+      </a>
+      <div className="mt-3 flex justify-center gap-2">
+        <button type="button" onClick={downloadQr} className="h-9 rounded-xl bg-blue-700 px-3 text-xs font-bold text-white hover:bg-blue-800">
+          Download QR
+        </button>
+        <button type="button" onClick={copyLink} className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-100">
+          {copied ? "Copied" : "Copy link"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function BlockchainBadge({ status, txHash }) {
   const configs = {
     confirmed: { bg: "bg-emerald-50", label: "✓ Blockchain verified", sub: "Verified on the Sepolia smart contract.", textColor: "text-emerald-800", subColor: "text-emerald-600" },
@@ -126,62 +169,17 @@ function BlockchainBadge({ status, txHash }) {
   );
 }
 
-function QrCard({ title, url }) {
-  const [copied, setCopied] = useState(false);
-  const canvasId = `qr-${title.replace(/\W+/g, "-").toLowerCase()}`;
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  const download = () => {
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) return;
-    const link = document.createElement("a");
-    link.href = canvas.toDataURL("image/png");
-    link.download = `${canvasId}.png`;
-    link.click();
-  };
-
-  return (
-    <div className="flex flex-col items-center rounded-2xl border border-slate-200 bg-slate-50 p-4 text-center">
-      <h3 className="mb-3 text-xs font-bold text-slate-800">{title}</h3>
-      <div className="rounded-lg bg-white p-2">
-        <QRCodeCanvas id={canvasId} value={url} size={176} level="H" includeMargin />
-      </div>
-      <p className="mt-2 w-full truncate text-[10px] text-slate-500">{url}</p>
-      <div className="mt-3 flex gap-2">
-        <button type="button" onClick={download} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 transition">
-          Download QR
-        </button>
-        <button type="button" onClick={copy} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition">
-          {copied ? "Copied!" : "Copy link"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ─────────────────────────────────────────────
 // Main Page
 // ─────────────────────────────────────────────
 
 export default function ProductDetails() {
   const { productId } = useParams();
-  const { token } = useAuthFlow();
+  const { token, walletAddress } = useAuthFlow();
 
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  // Transfer modal
-  const [transferOpen, setTransferOpen] = useState(false);
 
   // Blockchain action state
   const [chainBusy, setChainBusy] = useState(false);
@@ -243,15 +241,6 @@ export default function ProductDetails() {
 
       if (action === "register") {
         setProduct((p) => ({ ...p, blockchainStatus: "confirmed", blockchainTxHash: txHash }));
-      } else if (action === "transfer") {
-        setProduct((p) => ({
-          ...p,
-          walletAddress: body.newOwner.toLowerCase(),
-          blockchainStatus: "confirmed",
-          blockchainTxHash: txHash,
-          status: "Transferred",
-        }));
-        setTransferOpen(false);
       }
     } catch (err) {
       setChainError(err.message || "Blockchain transaction failed.");
@@ -310,15 +299,15 @@ export default function ProductDetails() {
                 </button>
               )}
 
-              <button
-                type="button"
+              <Link
+                to={`/transfer-ownership?productId=${encodeURIComponent(product.productId)}`}
                 id="btn-transfer-ownership"
-                disabled={chainBusy || product.blockchainStatus !== "confirmed"}
-                onClick={() => setTransferOpen(true)}
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-bold text-white shadow-sm hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                aria-disabled={chainBusy || product.blockchainStatus !== "confirmed"}
+                onClick={(event) => { if (chainBusy || product.blockchainStatus !== "confirmed") event.preventDefault(); }}
+                className={`inline-flex h-11 items-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-bold text-white shadow-sm hover:bg-blue-800 transition ${chainBusy || product.blockchainStatus !== "confirmed" ? "cursor-not-allowed opacity-50" : ""}`}
               >
                 <ArrowRightLeft size={16} /> Transfer Ownership
-              </button>
+              </Link>
             </div>
           </header>
 
@@ -360,21 +349,24 @@ export default function ProductDetails() {
 
               {/* Ownership */}
               <Panel icon={<ArrowRightLeft size={17} />} title="Ownership history">
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-slate-800">
-                    <span className="inline-flex items-center gap-2">
-                      <Wallet size={15} /> {shortAddress(product.walletAddress)}
-                    </span>
-                    <span className="text-xs font-medium text-slate-500">
-                      Registered {fmtDate(product.createdAt || product.purchaseDate)}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">Original owner · Product registered to this wallet</p>
+                <div className="space-y-3">
+                  {(product.ownershipHistory || []).length > 0 ? product.ownershipHistory.map((entry, index) => (
+                    <div key={entry.txHash || `${entry.from}-${entry.to}-${index}`} className="rounded-2xl bg-slate-50 p-4">
+                      <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-800">
+                        <span className="font-mono text-xs">{shortAddress(entry.from)}</span>
+                        <ArrowRightLeft size={14} className="text-blue-700" />
+                        <span className="font-mono text-xs">{shortAddress(entry.to)}</span>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">Transferred {fmtDate(entry.transferredAt)}</p>
+                      {entry.txHash && <a href={`https://sepolia.etherscan.io/tx/${entry.txHash}`} target="_blank" rel="noreferrer" className="mt-2 block truncate font-mono text-[10px] text-blue-700 hover:underline">{entry.txHash}</a>}
+                    </div>
+                  )) : <div className="rounded-2xl bg-slate-50 p-4"><div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="inline-flex items-center gap-2"><Wallet size={15} /> {shortAddress(product.walletAddress)}</span><span className="text-xs font-medium text-slate-500">Registered {fmtDate(product.createdAt || product.purchaseDate)}</span></div><p className="mt-2 text-xs text-slate-500">Current owner · No confirmed ownership transfer recorded.</p></div>}
+                  <p className="text-xs text-slate-500">Current owner: <span className="font-mono text-slate-700">{shortAddress(product.walletAddress)}</span>. On-chain ownership is authoritative.</p>
                 </div>
               </Panel>
 
               {/* Service lifecycle */}
-              <ServiceLifecycle product={product} token={token} />
+              <ServiceLifecycle product={product} token={token} walletAddress={walletAddress} />
             </div>
 
             {/* Right column */}
@@ -412,22 +404,11 @@ export default function ProductDetails() {
                 </div>
               </Panel>
 
-              {/* QR codes */}
-              <Panel
-                icon={<QrCode size={17} />}
-                title="QR verification & public passport"
-                subtitle="Shareable links for warranty verification and product history."
-              >
-                {publicBaseUrl() ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <QrCard title="Warranty verification" url={`${publicBaseUrl()}/warranty/${product.publicId}`} />
-                    <QrCard title="Product passport" url={`${publicBaseUrl()}/passport/${product.publicId}`} />
-                  </div>
-                ) : (
-                  <p role="status" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
-                    Set <code>VITE_PUBLIC_APP_URL</code> in <code>frontend/.env</code> to generate scannable QR links.
-                  </p>
-                )}
+              {/* Product Passport QR — the Warranty Verification QR was intentionally removed. */}
+              <Panel icon={<QrCode size={17} />} title="Product Passport" subtitle="Share a link to this product's public passport.">
+                <ProductPassportQr
+                  url={`${publicBaseUrl()}/passport/${encodeURIComponent(product.publicId || product.productId)}`}
+                />
               </Panel>
 
               {/* Invoice & pricing */}
@@ -454,13 +435,6 @@ export default function ProductDetails() {
             </div>
           </div>
 
-          {/* Transfer ownership modal */}
-          <TransferOwnershipModal
-            open={transferOpen}
-            busy={chainBusy}
-            onConfirm={(newOwner) => chainAction("transfer", { newOwner })}
-            onClose={() => !chainBusy && setTransferOpen(false)}
-          />
         </>
       )}
     </WorkspaceLayout>

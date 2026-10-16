@@ -2,7 +2,6 @@ import {
   LayoutDashboard,
   Package,
   Plus,
-  Search,
   Repeat2,
   UserRound,
   ChevronRight,
@@ -15,10 +14,7 @@ import { useAuthFlow } from "../auth/useAuthFlow";
 
 function Sidebar({
   sidebarOpen,
-  setSidebarOpen,
-  pinnedOpen = false,
-  onHoverChange,
-  pinnedMode = false,
+  onToggle,
   showBrand = false,
   topOffset = 76,
 }) {
@@ -41,14 +37,9 @@ function Sidebar({
       path: "/register-product",
     },
     {
-      name: "Verify Product",
-      icon: Search,
-      path: "/verify",
-    },
-    {
       name: "Transfer Ownership",
       icon: Repeat2,
-      path: "/transfer",
+      path: "/transfer-ownership",
     },
     {
       name: "Profile",
@@ -57,19 +48,10 @@ function Sidebar({
     },
   ];
 
-  const isExpanded = pinnedMode ? pinnedOpen || sidebarOpen : sidebarOpen;
+  const isExpanded = sidebarOpen;
 
   return (
     <aside
-      onMouseEnter={(event) => {
-        if (pinnedMode && event.target.closest("[data-sidebar-brand]")) return;
-        if (pinnedMode) onHoverChange(true);
-        else setSidebarOpen(true);
-      }}
-      onMouseLeave={() => {
-        if (pinnedMode) onHoverChange(false);
-        else setSidebarOpen(false);
-      }}
       className={`
         group/sidebar
         fixed
@@ -105,11 +87,10 @@ function Sidebar({
           <button
             type="button"
             data-sidebar-brand
-            aria-label={`${pinnedOpen ? "Close" : "Open"} sidebar`}
+            aria-label={`${isExpanded ? "Close" : "Open"} sidebar`}
             aria-expanded={isExpanded}
-            title={pinnedOpen ? "Close sidebar" : "Open sidebar"}
-            onMouseEnter={() => onHoverChange(false)}
-            onClick={() => setSidebarOpen(!pinnedOpen)}
+            title={isExpanded ? "Close sidebar" : "Open sidebar"}
+            onClick={onToggle}
             className={`mb-5 flex h-16 w-full shrink-0 items-center rounded-2xl text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] ${
               isExpanded ? "justify-start gap-3" : "justify-center"
             }`}

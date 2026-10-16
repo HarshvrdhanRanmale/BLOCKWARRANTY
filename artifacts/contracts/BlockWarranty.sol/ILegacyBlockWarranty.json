@@ -1,0 +1,231 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "ILegacyBlockWarranty",
+  "sourceName": "contracts/BlockWarranty.sol",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "productKey",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getClaimCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "productKey",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getProduct",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "bytes32",
+              "name": "productKey",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "serialNumberHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "address",
+              "name": "currentOwner",
+              "type": "address"
+            },
+            {
+              "internalType": "uint64",
+              "name": "registeredAt",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "purchaseDate",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "warrantyStart",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "warrantyExpiry",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint8",
+              "name": "status",
+              "type": "uint8"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "metadataHash",
+              "type": "bytes32"
+            }
+          ],
+          "internalType": "struct ILegacyBlockWarranty.Product",
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "productKey",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "serviceId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getService",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "serviceId",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "timestamp",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "serviceProvider",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "descriptionHash",
+              "type": "bytes32"
+            }
+          ],
+          "internalType": "struct ILegacyBlockWarranty.ServiceRecord",
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "productKey",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getServiceCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "productKey",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "claimId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getWarrantyClaim",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "claimId",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "timestamp",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "claimant",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "descriptionHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bool",
+              "name": "approved",
+              "type": "bool"
+            }
+          ],
+          "internalType": "struct ILegacyBlockWarranty.WarrantyClaim",
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "productKey",
+          "type": "bytes32"
+        }
+      ],
+      "name": "productExists",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x",
+  "deployedBytecode": "0x",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

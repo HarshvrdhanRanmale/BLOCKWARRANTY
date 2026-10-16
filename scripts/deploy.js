@@ -25,7 +25,8 @@ async function main() {
     "BlockWarranty"
   );
 
-  const blockWarranty = await BlockWarranty.deploy();
+  const [relayer] = await hre.ethers.getSigners();
+  const blockWarranty = await BlockWarranty.deploy(relayer.address, hre.ethers.ZeroAddress);
 
   await blockWarranty.waitForDeployment();
 

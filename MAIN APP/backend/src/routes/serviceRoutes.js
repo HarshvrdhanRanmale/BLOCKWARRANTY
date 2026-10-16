@@ -8,12 +8,17 @@ const { authenticate } = require('../middleware/auth');
 const { contractAt, productKey, hashDocument, hashDetails, getProvider, verifyTransactionEvent, config, iface } = require('../services/blockchain');
 
 const router = express.Router({ mergeParams: true });
-const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
-const IMAGE_SIGNATURES = {
-  'image/jpeg': (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-  'image/png': (b) => b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
-  'image/webp': (b) => b.length >= 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP'
+const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
+const DOCUMENT_TYPES = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp',
+  tif: 'image/tiff', tiff: 'image/tiff', avif: 'image/avif', heic: 'image/heic', heif: 'image/heif', svg: 'image/svg+xml',
+  pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', md: 'text/markdown', rtf: 'application/rtf',
+  doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  odt: 'application/vnd.oasis.opendocument.text', ods: 'application/vnd.oasis.opendocument.spreadsheet', odp: 'application/vnd.oasis.opendocument.presentation'
 };
+const AI_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const SERVICE_FIELDS = ['invoiceNumber', 'serviceDate', 'serviceCenterName', 'serviceCenterContact', 'serviceType', 'issueReported', 'diagnosis', 'workPerformed', 'partsReplaced', 'laborCost', 'partsCost', 'totalCost', 'currency', 'warrantyCovered', 'customerCost'];
 const CLAIM_FIELDS = ['claimDate', 'issue', 'claimDescription', 'serviceCenterName', 'diagnosis', 'resolution', 'claimStatus', 'partsReplaced', 'warrantyCovered', 'customerCost'];
 const stringField = (value, limit = 2000) => String(value ?? '').trim().slice(0, limit);
@@ -71,25 +76,49 @@ async function findOwnedProduct(req) {
   return null;
 }
 
-function readImage(req) {
-  const { fileData, fileType } = req.body || {};
-  if (fileType === 'application/pdf') {
-    const error = new Error('PDF service-bill extraction is not available in this project yet. Upload a clear JPG, PNG, or WEBP image, or enter details manually.'); error.status = 415; throw error;
+function documentSignatureMatches(fileType, buffer) {
+  const ascii = buffer.toString('ascii');
+  if (fileType === 'image/jpeg') return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  if (fileType === 'image/png') return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (fileType === 'image/webp') return buffer.length >= 12 && ascii.slice(0, 4) === 'RIFF' && ascii.slice(8, 12) === 'WEBP';
+  if (fileType === 'image/gif') return ascii.startsWith('GIF87a') || ascii.startsWith('GIF89a');
+  if (fileType === 'image/bmp') return ascii.startsWith('BM');
+  if (fileType === 'image/tiff') return buffer.length >= 4 && (buffer.subarray(0, 4).equals(Buffer.from([0x49, 0x49, 0x2a, 0x00])) || buffer.subarray(0, 4).equals(Buffer.from([0x4d, 0x4d, 0x00, 0x2a])));
+  if (['image/avif', 'image/heic', 'image/heif'].includes(fileType)) return ascii.slice(4, 8) === 'ftyp' && /avif|avis|heic|heix|hevc|hevx|mif1|msf1/.test(ascii.slice(8, 16));
+  if (fileType === 'image/svg+xml') return /^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(buffer.toString('utf8', 0, Math.min(buffer.length, 1024)));
+  if (fileType === 'application/pdf') return ascii.startsWith('%PDF-');
+  if (['application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint'].includes(fileType)) return buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+  if (['application/rtf', 'text/rtf'].includes(fileType)) return /^\s*\{\\rtf/i.test(buffer.toString('utf8', 0, Math.min(buffer.length, 32)));
+  if (fileType.startsWith('application/vnd.openxmlformats-officedocument.') || fileType.startsWith('application/vnd.oasis.opendocument.')) return ascii.startsWith('PK\u0003\u0004');
+  if (['text/plain', 'text/csv', 'text/markdown'].includes(fileType)) {
+    if (buffer.includes(0)) return false;
+    const text = buffer.toString('utf8');
+    return !text.includes('\ufffd');
   }
-  if (!IMAGE_SIGNATURES[fileType] || typeof fileData !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(fileData)) {
-    const error = new Error('Upload a valid JPG, PNG, or WEBP service document.'); error.status = 400; throw error;
+  return false;
+}
+
+function readDocument(req) {
+  const { fileData, fileType } = req.body || {};
+  const fileName = stringField(req.body?.fileName, 255) || 'service-document';
+  const extension = fileName.split('.').pop()?.toLowerCase() || '';
+  const candidateType = !fileType || fileType === 'application/octet-stream' ? DOCUMENT_TYPES[extension] : fileType;
+  const normalizedType = typeof candidateType === 'string' && /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(candidateType) ? candidateType.slice(0, 100) : 'application/octet-stream';
+  if (typeof fileData !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(fileData)) {
+    const error = new Error('The selected file could not be read. Please choose it again.'); error.status = 400; throw error;
   }
   const buffer = Buffer.from(fileData, 'base64');
-  if (!buffer.length || buffer.length > MAX_DOCUMENT_BYTES) { const error = new Error('Service document must be 8 MB or smaller.'); error.status = buffer.length ? 413 : 400; throw error; }
-  if (!IMAGE_SIGNATURES[fileType](buffer)) { const error = new Error('The uploaded file contents do not match its image type.'); error.status = 400; throw error; }
-  return { buffer, fileType, fileName: stringField(req.body.fileName, 255) || 'service-document' };
+  if (!buffer.length || buffer.length > MAX_DOCUMENT_BYTES) { const error = new Error('Service document must be 15 MB or smaller.'); error.status = buffer.length ? 413 : 400; throw error; }
+  if (Object.values(DOCUMENT_TYPES).includes(normalizedType) && !documentSignatureMatches(normalizedType, buffer)) { const error = new Error('The file contents do not match the selected document type.'); error.status = 400; throw error; }
+  return { buffer, fileType: normalizedType, fileName };
 }
 
 router.post('/extract', async (req, res) => {
   try {
     const product = await findOwnedProduct(req);
     if (!product) return res.status(mongoose.connection.readyState === 1 ? 404 : 503).json({ message: 'Product unavailable or database disconnected.' });
-    const { buffer, fileType } = readImage(req);
+    const { buffer, fileType } = readDocument(req);
+    if (!AI_IMAGE_TYPES.has(fileType)) return res.status(415).json({ message: 'This file format is supported as a private attachment. Automatic extraction currently accepts JPG, PNG, or WEBP images; enter the details manually and save the original document.' });
     if (!process.env.GROQ_API_KEY) return res.status(503).json({ message: 'Document extraction is not configured. Set GROQ_API_KEY in backend/.env.' });
     const fields = ['invoiceNumber', 'serviceDate', 'serviceCenterName', 'serviceCenterContact', 'serviceType', 'issueReported', 'diagnosis', 'workPerformed', 'partsReplaced', 'laborCost', 'partsCost', 'totalCost', 'currency', 'warrantyCovered', 'customerCost', 'claimDate', 'claimDescription', 'resolution'];
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -118,7 +147,7 @@ router.post('/drafts', async (req, res) => {
   try {
     const product = await findOwnedProduct(req);
     if (!product) return res.status(mongoose.connection.readyState === 1 ? 404 : 503).json({ message: 'Product unavailable or database disconnected.' });
-    const { buffer, fileType, fileName } = readImage(req);
+    const { buffer, fileType, fileName } = readDocument(req);
     const kind = req.body?.kind === 'warranty_claim' ? 'warranty_claim' : 'service';
     const confirmedData = req.body?.confirmedData;
     if (!confirmedData || typeof confirmedData !== 'object' || Array.isArray(confirmedData)) return res.status(400).json({ message: 'Review and provide the service details before saving a draft.' });
@@ -176,6 +205,13 @@ router.post('/prepare', async (req, res) => {
     const method = kind === 'service' ? 'recordService' : 'recordWarrantyClaim';
     const approved = kind === 'warranty_claim' ? Boolean(record.confirmedData?.claimStatus === 'approved') : false;
     const args = kind === 'service' ? [pKey, descHash] : [pKey, descHash, approved];
+
+    try {
+      await contract[method].staticCall(...args, { from: req.user.walletAddress });
+    } catch (simulationError) {
+      const reason = simulationError.reason || simulationError.shortMessage || 'The current wallet cannot record this entry for the selected product.';
+      return res.status(409).json({ message: `Blockchain pre-check failed: ${reason}` });
+    }
 
     record.status = 'pending_blockchain';
     record.blockchainStatus = 'pending';
@@ -240,6 +276,7 @@ router.get('/:recordId/document', async (req, res) => {
     const files = await bucket.find({ _id: record.documentId, 'metadata.ownerWallet': ownerWallet, 'metadata.productId': record.productId }).toArray();
     if (!files.length) return res.status(404).json({ message: 'Private service document not found.' });
     res.set('Content-Type', record.documentMimeType || 'application/octet-stream');
+    res.set('X-Content-Type-Options', 'nosniff');
     res.set('Content-Disposition', `attachment; filename="${encodeURIComponent(record.documentName || files[0].filename)}"`);
     return bucket.openDownloadStream(record.documentId).pipe(res);
   } catch (error) { console.error('Service document download failed:', error.message); return res.status(500).json({ message: 'The service document could not be downloaded.' }); }

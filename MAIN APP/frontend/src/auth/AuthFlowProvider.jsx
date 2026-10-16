@@ -26,13 +26,13 @@ export function AuthFlowProvider({ children }) {
       signer: wallet.signer,
       provider: wallet.provider,
       connectWallet: wallet.connectWallet,
+      authenticateWithBackend: wallet.authenticateWithBackend,
       switchToSepolia: wallet.switchToSepolia,
       setWallet: () => {},
       setAuthenticatedUser: (token, user) => {
         if (token) localStorage.setItem("blockwarranty_token", token);
         if (user) localStorage.setItem("blockwarranty_user", JSON.stringify(user));
       },
-      updateProfile: wallet.updateProfile,
       logout: wallet.logout,
     }),
     [wallet]

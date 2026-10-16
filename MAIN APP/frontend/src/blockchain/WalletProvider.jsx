@@ -250,22 +250,21 @@ export function WalletProvider({ children }) {
     }
   }, [signer, walletAddress]);
 
-  const updateProfile = useCallback(async (name, email) => {
+  const linkGoogleProfile = useCallback(async (credential) => {
     const currentToken = token || localStorage.getItem("blockwarranty_token");
-    if (!currentToken) throw new Error("Not authenticated");
+    if (!currentToken) throw new Error("Sign in with your wallet before linking Google.");
 
-    const res = await fetch(`${API_BASE_URL}/api/auth/profile`, {
-      method: "PATCH",
+    const res = await fetch(`${API_BASE_URL}/api/auth/google-profile`, {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${currentToken}`,
       },
-      body: JSON.stringify({ name, email }),
+      body: JSON.stringify({ credential }),
     });
-
     const data = await res.json();
     if (!res.ok || !data.success) {
-      throw new Error(data.error || "Failed to update profile.");
+      throw new Error(data.error || "Failed to link your Google profile.");
     }
 
     setUser(data.user);
@@ -297,7 +296,7 @@ export function WalletProvider({ children }) {
       connectWallet,
       switchToSepolia,
       authenticateWithBackend,
-      updateProfile,
+      linkGoogleProfile,
       logout,
       setAuthenticationStatus,
     }),
@@ -316,7 +315,7 @@ export function WalletProvider({ children }) {
       connectWallet,
       switchToSepolia,
       authenticateWithBackend,
-      updateProfile,
+      linkGoogleProfile,
       logout,
     ]
   );

@@ -1,9 +1,11 @@
 const crypto = require('crypto');
 const { ethers } = require('ethers');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const config = require('../config/env');
 const User = require('../models/User');
 const Challenge = require('../models/Challenge');
+const googleOAuthClient = new OAuth2Client();
 
 class AuthService {
   /**
@@ -62,7 +64,7 @@ class AuthService {
   /**
    * Verify signature and issue JWT. Fully async — reads/writes MongoDB.
    */
-  async verifySignature(walletAddress, message, signature, profile = {}) {
+  async verifySignature(walletAddress, message, signature) {
     if (!walletAddress || !message || !signature) {
       throw new Error('walletAddress, message, and signature are required');
     }
@@ -105,10 +107,6 @@ class AuthService {
     // Consume challenge — prevents replay attacks
     await Challenge.deleteOne({ walletAddress: key });
 
-    // Build profile fields from Google OAuth userInfo (if provided)
-    const providedName = profile?.name ? String(profile.name).trim() : '';
-    const providedEmail = profile?.email ? String(profile.email).trim().toLowerCase() : '';
-
     const now = new Date();
 
     // Upsert user — create on first login, update on subsequent logins
@@ -120,21 +118,13 @@ class AuthService {
       user = new User({
         walletAddress: key,
         walletAddressChecksum: normalized,
-        name: providedName,
-        email: providedEmail,
+        name: '',
+        email: '',
         role: 'user',
-        profileComplete: Boolean(providedName),
+        profileComplete: false,
         lastLoginAt: now
       });
     } else {
-      // Only fill in missing data — never overwrite user-set values
-      if (!user.name && providedName) {
-        user.name = providedName;
-        user.profileComplete = true;
-      }
-      if (!user.email && providedEmail) {
-        user.email = providedEmail;
-      }
       user.lastLoginAt = now;
     }
 
@@ -159,36 +149,51 @@ class AuthService {
     };
   }
 
-  /**
-   * Update profile fields (name, email) for an existing or new user.
-   */
-  async updateProfile(walletAddress, { name, email }) {
+  /** Verify a Google ID token and link its verified profile to the authenticated wallet. */
+  async linkGoogleProfile(walletAddress, credential) {
+    if (!config.GOOGLE_CLIENT_ID) {
+      throw Object.assign(new Error('Google sign-in is not configured on the backend.'), { status: 503 });
+    }
+    if (typeof credential !== 'string' || !credential.trim()) {
+      throw Object.assign(new Error('A Google credential is required.'), { status: 400 });
+    }
+
+    let googleProfile;
+    try {
+      const ticket = await googleOAuthClient.verifyIdToken({
+        idToken: credential,
+        audience: config.GOOGLE_CLIENT_ID,
+      });
+      googleProfile = ticket.getPayload();
+    } catch {
+      throw Object.assign(new Error('Google could not verify this sign-in. Please try again.'), { status: 401 });
+    }
+
+    if (!googleProfile?.sub || !googleProfile.email || googleProfile.email_verified !== true) {
+      throw Object.assign(new Error('Use a Google account with a verified email address.'), { status: 401 });
+    }
+
     const normalized = this.normalizeAddress(walletAddress);
     const key = normalized.toLowerCase();
-    const now = new Date();
+    const user = await User.findOne({ walletAddress: key }).select('+googleSub');
+    if (!user) {
+      throw Object.assign(new Error('Authenticate this wallet before linking Google.'), { status: 401 });
+    }
 
-    const update = { lastLoginAt: now };
-    if (typeof name !== 'undefined') update.name = String(name).trim();
-    if (typeof email !== 'undefined') update.email = String(email).trim().toLowerCase();
-    // profileComplete = true if name ends up non-empty
-    update.profileComplete = Boolean(
-      (update.name !== undefined ? update.name : '') ||
-        (await User.findOne({ walletAddress: key }).then(u => u?.name || ''))
-    );
+    if (user.googleSub && user.googleSub !== googleProfile.sub) {
+      throw Object.assign(new Error('A different Google account is already linked to this wallet.'), { status: 409 });
+    }
+    const linkedWallet = await User.findOne({ googleSub: googleProfile.sub }).select('walletAddress');
+    if (linkedWallet && linkedWallet.walletAddress !== key) {
+      throw Object.assign(new Error('This Google account is already linked to another wallet.'), { status: 409 });
+    }
 
-    const user = await User.findOneAndUpdate(
-      { walletAddress: key },
-      {
-        $set: update,
-        $setOnInsert: {
-          walletAddress: key,
-          walletAddressChecksum: normalized,
-          role: 'user'
-        }
-      },
-      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
-    );
-
+    user.googleSub = googleProfile.sub;
+    user.name = String(googleProfile.name || '').trim();
+    user.email = String(googleProfile.email).trim().toLowerCase();
+    user.profileComplete = Boolean(user.name);
+    user.lastLoginAt = new Date();
+    await user.save();
     return this._serializeUser(user);
   }
 
@@ -240,6 +245,7 @@ class AuthService {
       email: user.email || '',
       role: user.role,
       profileComplete: user.profileComplete,
+      googleLinked: Boolean(user.googleSub),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastLoginAt: user.lastLoginAt

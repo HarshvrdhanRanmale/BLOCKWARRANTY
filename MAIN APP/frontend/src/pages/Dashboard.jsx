@@ -1,11 +1,9 @@
 import {
   Package,
   Plus,
-  Search,
   ArrowRight,
   ShieldCheck,
   Clock3,
-  Repeat2,
   ExternalLink,
   ChevronDown,
   Menu,
@@ -15,22 +13,37 @@ import {
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
+import { useSidebarPreference } from "../components/useSidebarPreference";
 import { useAuthFlow } from "../auth/useAuthFlow";
-import laptopImage from "../assets/products/laptop.png";
-import smartphoneImage from "../assets/products/smartphone.png";
-import headphonesImage from "../assets/products/headphones.png";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
+function getWarrantyExpiry(product) {
+  if (!product.purchaseDate) return null;
+  const purchaseDate = new Date(product.purchaseDate);
+  const warrantyPeriod = Number(product.warrantyPeriod);
+  if (!Number.isFinite(purchaseDate.getTime()) || !Number.isFinite(warrantyPeriod) || warrantyPeriod <= 0) {
+    return null;
+  }
+
+  const unitSeconds = {
+    Days: 86400,
+    Months: 30 * 86400,
+    Years: 365 * 86400,
+  }[product.warrantyUnit || "Years"];
+  if (!unitSeconds) return null;
+
+  return new Date(purchaseDate.getTime() + warrantyPeriod * unitSeconds * 1000);
+}
 
 function Dashboard() {
   const { user } = useAuthFlow();
   const accountName = user?.name?.trim() || user?.email?.trim().split("@")[0] || "there";
   const displayName = accountName.split(/[\s._-]+/)[0] || "there";
   const [mobileMenu, setMobileMenu] = useState(false);
-  const [sidebarPinnedOpen, setSidebarPinnedOpen] = useState(false);
-  const [sidebarHovered, setSidebarHovered] = useState(false);
-  const sidebarOpen = sidebarPinnedOpen || sidebarHovered;
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebarPreference();
 const [products, setProducts] = useState([]);
+const [productsLoaded, setProductsLoaded] = useState(false);
 
 useEffect(() => {
   const fetchProducts = async () => {
@@ -65,13 +78,49 @@ useEffect(() => {
       });
 
       setProducts(formattedProducts);
+      setProductsLoaded(true);
     } catch (error) {
       console.error("Error fetching products:", error);
     }
   };
 
   fetchProducts();
+  // Refresh after an ownership transfer completes (buyer paid, ownership moved
+  // on-chain) so the dashboard reflects the latest on-chain ownership without a
+  // manual reload. The backend re-verifies on-chain ownership on every fetch.
+  const handleTransfersChanged = () => fetchProducts();
+  const handleProductsChanged = () => fetchProducts();
+  const handleFocus = () => fetchProducts();
+  window.addEventListener("blockwarranty:transfers-changed", handleTransfersChanged);
+  window.addEventListener("blockwarranty:products-changed", handleProductsChanged);
+  window.addEventListener("focus", handleFocus);
+  return () => {
+    window.removeEventListener("blockwarranty:transfers-changed", handleTransfersChanged);
+    window.removeEventListener("blockwarranty:products-changed", handleProductsChanged);
+    window.removeEventListener("focus", handleFocus);
+  };
 }, []);
+
+  const now = Date.now();
+  const warrantyCounts = products.reduce((counts, product) => {
+    const status = product.status || "Active";
+    const hasWarranty = Number(product.warrantyPeriod) > 0;
+
+    // Match the product collection's existing summary: Active and Transferred
+    // records with a warranty term are covered records. Expiry is only counted
+    // when the product record itself is explicitly marked Expired.
+    if (["Active", "Transferred"].includes(status) && hasWarranty) {
+      counts.active += 1;
+    }
+    if (status === "Expired") counts.expired += 1;
+
+    const expiry = getWarrantyExpiry(product);
+    if (!expiry || !["Active", "Transferred"].includes(status)) return counts;
+
+    const daysRemaining = (expiry.getTime() - now) / 86400000;
+    if (hasWarranty && daysRemaining >= 0 && daysRemaining <= 30) counts.expiringSoon += 1;
+    return counts;
+  }, { active: 0, expiringSoon: 0, expired: 0 });
 
   return (
     <div className="min-h-screen bg-[#F5F1EC] text-[#171717]">
@@ -187,19 +236,6 @@ useEffect(() => {
               "
             >
               Register Product
-            </Link>
-
-            <Link
-              to="/verify"
-              className="
-                text-sm
-                font-medium
-                text-[#6B7280]
-                transition
-                hover:text-[#8B1E3F]
-              "
-            >
-              Verify
             </Link>
 
           </nav>
@@ -327,14 +363,6 @@ useEffect(() => {
                 Register Product
               </Link>
 
-              <Link
-                to="/verify"
-                className="rounded-xl px-4 py-3 text-sm font-medium hover:bg-slate-50"
-                onClick={() => setMobileMenu(false)}
-              >
-                Verify Product
-              </Link>
-
             </div>
           </div>
         )}
@@ -357,11 +385,8 @@ useEffect(() => {
       <div className="min-h-screen">
 
   <Sidebar
-    sidebarOpen={sidebarHovered}
-    setSidebarOpen={setSidebarPinnedOpen}
-    pinnedOpen={sidebarPinnedOpen}
-    onHoverChange={setSidebarHovered}
-    pinnedMode
+    sidebarOpen={sidebarOpen}
+    onToggle={toggleSidebar}
     showBrand
     topOffset={0}
   />
@@ -514,7 +539,7 @@ useEffect(() => {
               <StatCard
                 icon={<Package size={21} />}
                 iconClass="bg-[#F3DDE4] text-[#8B1E3F]"
-                number="3"
+                number={productsLoaded ? products.length : "—"}
                 title="My Products"
                 subtitle="Registered products"
               />
@@ -522,7 +547,7 @@ useEffect(() => {
               <StatCard
                 icon={<ShieldCheck size={21} />}
                 iconClass="bg-[#EAF7ED] text-[#16A34A]"
-                number="2"
+                number={productsLoaded ? warrantyCounts.active : "—"}
                 title="Active Warranties"
                 subtitle="Currently protected"
               />
@@ -530,7 +555,7 @@ useEffect(() => {
               <StatCard
                 icon={<Clock3 size={21} />}
                 iconClass="bg-[#FEF3E2] text-[#D97706]"
-                number="0"
+                number={productsLoaded ? warrantyCounts.expiringSoon : "—"}
                 title="Expiring Soon"
                 subtitle="Within 30 days"
               />
@@ -538,7 +563,7 @@ useEffect(() => {
               <StatCard
                 icon={<Clock3 size={21} />}
                 iconClass="bg-[#FDECEC] text-[#DC2626]"
-                number="1"
+                number={productsLoaded ? warrantyCounts.expired : "—"}
                 title="Expired"
                 subtitle="Needs attention"
               />
@@ -725,108 +750,6 @@ function StatCard({
       </div>
 
     </div>
-  );
-}
-
-
-/* =========================================================
-   QUICK ACTION
-========================================================= */
-
-function QuickAction({
-  icon,
-  title,
-  description,
-  href,
-  gradient,
-}) {
-  return (
-    <Link
-      to={href}
-      className="
-        group
-        relative
-        overflow-hidden
-        rounded-[22px]
-        border
-        border-[#E5E0DA]
-        bg-white
-        p-5
-        shadow-[0_8px_30px_rgba(15,23,42,0.04)]
-        transition-all
-        duration-300
-        hover:-translate-y-1
-        hover:shadow-[0_18px_45px_rgba(139,30,63,0.10)]
-      "
-    >
-
-      <div
-        className={`
-          absolute
-          -right-10
-          -top-10
-          h-28
-          w-28
-          rounded-full
-          ${gradient}
-          opacity-[0.07]
-          blur-2xl
-          transition
-          duration-500
-          group-hover:scale-150
-        `}
-      />
-
-      <div className="relative flex items-center gap-4">
-
-        <div
-          className={`
-            flex
-            h-12
-            w-12
-            shrink-0
-            items-center
-            justify-center
-            rounded-2xl
-            ${gradient}
-            text-white
-            shadow-lg
-            transition-transform
-            duration-300
-            group-hover:scale-110
-          `}
-        >
-          {icon}
-        </div>
-
-
-        <div className="min-w-0 flex-1">
-
-          <h4 className="font-bold text-[#171717]">
-            {title}
-          </h4>
-
-          <p className="mt-1 text-xs leading-5 text-[#6B7280]">
-            {description}
-          </p>
-
-        </div>
-
-
-        <ArrowRight
-          size={18}
-          className="
-            text-[#E5E0DA]
-            transition-all
-            duration-300
-            group-hover:translate-x-1
-            group-hover:text-[#8B1E3F]
-          "
-        />
-
-      </div>
-
-    </Link>
   );
 }
 

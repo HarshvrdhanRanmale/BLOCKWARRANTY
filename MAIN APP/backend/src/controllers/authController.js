@@ -25,7 +25,7 @@ exports.getNonce = async (req, res) => {
 
 exports.verify = async (req, res) => {
   try {
-    const { walletAddress, message, signature, name, email } = req.body;
+    const { walletAddress, message, signature } = req.body;
 
     if (!walletAddress || !message || !signature) {
       return res.status(400).json({
@@ -34,7 +34,7 @@ exports.verify = async (req, res) => {
       });
     }
 
-    const result = await authService.verifySignature(walletAddress, message, signature, { name, email });
+    const result = await authService.verifySignature(walletAddress, message, signature);
 
     return res.status(200).json({
       success: true,
@@ -70,20 +70,13 @@ exports.getMe = async (req, res) => {
   }
 };
 
-exports.updateProfile = async (req, res) => {
+exports.linkGoogleProfile = async (req, res) => {
   try {
-    const { name, email } = req.body;
-    const updatedUser = await authService.updateProfile(req.user.walletAddress, { name, email });
-    return res.status(200).json({
-      success: true,
-      user: updatedUser,
-      message: 'Profile updated successfully'
-    });
+    const { credential } = req.body;
+    const user = await authService.linkGoogleProfile(req.user.walletAddress, credential);
+    return res.status(200).json({ success: true, user, message: 'Google profile linked successfully' });
   } catch (err) {
-    return res.status(400).json({
-      success: false,
-      error: err.message
-    });
+    return res.status(err.status || 400).json({ success: false, error: err.message });
   }
 };
 

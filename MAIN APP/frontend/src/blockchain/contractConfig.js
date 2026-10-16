@@ -1,4 +1,4 @@
-export const CONTRACT_ADDRESS = "0x1c385518934604241E66C6d2eda397CB80eA96be";
+export const CONTRACT_ADDRESS = import.meta.env.VITE_BLOCKWARRANTY_CONTRACT_ADDRESS || "0x1c385518934604241E66C6d2eda397CB80eA96be";
 export const CHAIN_ID = 11155111;
 export const CHAIN_HEX = "0xaa36a7";
 export const CHAIN_NAME = "Sepolia";

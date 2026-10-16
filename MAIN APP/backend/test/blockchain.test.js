@@ -1,5 +1,8 @@
 const ganache = require('ganache');
 const { ethers } = require('ethers');
+const fs = require('fs');
+const path = require('path');
+const solc = require('solc');
 const { artifact, productKey, hashDocument, hashDetails } = require('../src/services/blockchain');
 
 describe('BlockWarranty lifecycle contract', () => {
@@ -7,7 +10,17 @@ describe('BlockWarranty lifecycle contract', () => {
   beforeAll(async () => {
     raw = ganache.provider({ logging: { quiet: true }, chain: { chainId: 31337 } });
     provider = new ethers.BrowserProvider(raw); owner = await provider.getSigner(0); recipient = await provider.getSigner(1);
-    contract = await new ethers.ContractFactory(artifact.abi, `0x${artifact.evm.bytecode.object}`, owner).deploy();
+    const source = fs.readFileSync(path.resolve(__dirname, '../contracts/BlockWarrantyLifecycle.sol'), 'utf8');
+    const input = {
+      language: 'Solidity',
+      sources: { 'BlockWarrantyLifecycle.sol': { content: source } },
+      settings: { outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } } },
+    };
+    const output = JSON.parse(solc.compile(JSON.stringify(input)));
+    const errors = (output.errors || []).filter((error) => error.severity === 'error');
+    if (errors.length) throw new Error(errors.map((error) => error.formattedMessage).join('\n'));
+    const lifecycleArtifact = output.contracts['BlockWarrantyLifecycle.sol'].BlockWarrantyLifecycle;
+    contract = await new ethers.ContractFactory(lifecycleArtifact.abi, `0x${lifecycleArtifact.evm.bytecode.object}`, owner).deploy();
     await contract.waitForDeployment();
   });
   afterAll(async () => { await raw.disconnect(); });

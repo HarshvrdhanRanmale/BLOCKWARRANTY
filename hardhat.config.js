@@ -3,10 +3,12 @@ require("dotenv").config(); /* .env FILE SE RPC URL AUR PRIVATE KEY READ KARNE K
  
 /** @type import('hardhat/config').HardhatUserConfig */ 
  
-const SEPOLIA_URL = process.env.SEPOLIA_URL; 
+const SEPOLIA_URL = process.env.SEPOLIA_URL || "http://127.0.0.1:8545";
+// Default localhost so `npx hardhat test` runs WITHOUT deploy secrets.
+// Real Sepolia deployments must set SEPOLIA_URL + PRIVATE_KEY (root .env).
 // SEPOLIA TESTNET KA RPC URL — ISKE THROUGH HUM SEPOLIA BLOCKCHAIN SE CONNECT HOTE HAIN
 
-const PRIVATE_KEY = process.env.PRIVATE_KEY; 
+const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
 // JIS WALLET ACCOUNT SE TRANSACTIONS/CONTRACT DEPLOYMENT HOGI USKI PRIVATE KEY
 // GAS FEE ISI ACCOUNT KE SEPOLIA ETH SE PAY HOGI
  
@@ -19,7 +21,7 @@ module.exports = {
       url: SEPOLIA_URL, 
       // HARDHAT KO BATATA HAI KI SEPOLIA TESTNET SE KAHAN CONNECT KARNA HAI
  
-      accounts: [PRIVATE_KEY], 
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
       // DEPLOYMENT/TRANSACTION KE LIYE KAUNSA WALLET ACCOUNT USE KARNA HAI
       // PRIVATE KEY SE HARDHAT WALLET KO SIGN KARWATA HAI
     }, 

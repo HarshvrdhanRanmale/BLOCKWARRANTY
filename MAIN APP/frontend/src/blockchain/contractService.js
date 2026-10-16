@@ -41,8 +41,14 @@ export function metadataHash(metadata) {
 
 export function toUnixSeconds(date) {
   if (!date) return 0;
-  const ms = typeof date === "number" ? date : new Date(date).getTime();
-  if (Number.isNaN(ms) || ms <= 0) return 0;
+  if (typeof date === "number") {
+    if (!Number.isFinite(date) || date <= 0) return 0;
+    // Callers may already have converted a date to Unix seconds. Treat values
+    // above this threshold as JavaScript milliseconds and leave seconds intact.
+    return Math.floor(date > 1e12 ? date / 1000 : date);
+  }
+  const ms = new Date(date).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return 0;
   return Math.floor(ms / 1000);
 }
 

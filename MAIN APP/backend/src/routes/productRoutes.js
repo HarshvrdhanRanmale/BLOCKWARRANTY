@@ -3,6 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { ethers } = require('ethers');
 const Product = require('../models/Product');
+const Transfer = require('../models/Transfer');
 const { authenticate } = require('../middleware/auth');
 const { productKey, verifyTransactionEvent, contractAt, getProvider } = require('../services/blockchain');
 
@@ -166,10 +167,17 @@ router.get('/:productId/invoice', async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) return res.status(503).json({ message: 'The product database is not connected yet.' });
     const owner = req.user.walletAddress.toLowerCase();
-    const product = await Product.findOne({ productId: text(req.params.productId, 100), walletAddress: owner }).lean();
+    const product = await Product.findOne({ productId: text(req.params.productId, 100) }).lean();
     if (!product?.invoiceFileId) return res.status(404).json({ message: 'No invoice is stored for this product.' });
+    const isCurrentOwner = product.walletAddress === owner;
+    const isIntendedBuyer = await Transfer.exists({
+      productId: product.productId,
+      buyerWallet: owner,
+      status: { $in: ['pending', 'accepted'] },
+    });
+    if (!isCurrentOwner && !isIntendedBuyer) return res.status(403).json({ message: 'You are not authorized to view this product document.' });
     const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'invoices' });
-    const files = await bucket.find({ _id: product.invoiceFileId, 'metadata.walletAddress': owner }).toArray();
+    const files = await bucket.find({ _id: product.invoiceFileId }).toArray();
     if (!files.length) return res.status(404).json({ message: 'Stored invoice file was not found.' });
     res.set('Content-Type', product.invoiceMimeType || files[0].contentType || 'application/octet-stream');
     res.set('Content-Disposition', `inline; filename="${encodeURIComponent(product.invoiceFileName || files[0].filename)}"`);
@@ -189,9 +197,41 @@ router.get('/', async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({ message: 'The product database is not connected yet.' });
     }
-    const products = await Product.find({ walletAddress: req.user.walletAddress.toLowerCase() })
+    const caller = req.user.walletAddress.toLowerCase();
+    const records = await Product.find({
+      $or: [{ walletAddress: caller }, { 'ownershipHistory.to': caller }],
+    })
       .sort({ createdAt: -1 })
       .lean();
+    if (records.length === 0) return res.json([]);
+
+    const contract = contractAt();
+    const products = [];
+    for (const product of records) {
+      const key = productKey(product.productId);
+      let isRegistered;
+      let chainOwner = '';
+      try {
+        isRegistered = await contract.productExists(key);
+        if (isRegistered) {
+          const chainProduct = await contract.getProduct(key);
+          chainOwner = chainProduct.currentOwner.toLowerCase();
+        }
+      } catch (chainError) {
+        console.error(`Product ownership lookup failed for ${product.productId}:`, chainError.message);
+        return res.status(503).json({ message: 'Product ownership could not be verified on the blockchain. Please retry.' });
+      }
+
+      if (isRegistered) {
+        if (product.walletAddress !== chainOwner) {
+          await Product.updateOne({ _id: product._id }, { $set: { walletAddress: chainOwner } });
+          product.walletAddress = chainOwner;
+        }
+        if (chainOwner === caller) products.push(product);
+      } else if (product.walletAddress === caller) {
+        products.push(product);
+      }
+    }
     return res.json(products);
   } catch (error) {
     console.error('Product list failed:', error.message);

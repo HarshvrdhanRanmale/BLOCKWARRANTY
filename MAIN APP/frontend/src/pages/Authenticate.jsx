@@ -5,10 +5,9 @@ import {
   Info,
   LoaderCircle,
   ShieldCheck,
-  User,
-  Mail,
+  LockKeyhole,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import AuthShell from "../components/AuthShell";
 import WalletAddress from "../components/WalletAddress";
@@ -16,6 +15,26 @@ import { useWallet } from "../blockchain/useWallet";
 
 const buttonClass =
   "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-5 text-sm font-bold text-white transition hover:bg-[#1D4ED8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] disabled:cursor-not-allowed disabled:opacity-50";
+
+let googleIdentityScriptPromise;
+
+function loadGoogleIdentityScript() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (!googleIdentityScriptPromise) {
+    googleIdentityScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+      script.onload = () => (window.google?.accounts?.id
+        ? resolve()
+        : reject(new Error("Google sign-in could not be initialized.")));
+      script.onerror = () => reject(new Error("Google sign-in could not be loaded. Check your connection and try again."));
+      document.head.appendChild(script);
+    });
+  }
+  return googleIdentityScriptPromise;
+}
 
 export default function Authenticate() {
   const navigate = useNavigate();
@@ -26,22 +45,70 @@ export default function Authenticate() {
     switchToSepolia,
     signer,
     user,
-    token,
     authenticationStatus,
     setAuthenticationStatus,
     authenticateWithBackend,
-    updateProfile,
+    linkGoogleProfile,
   } = useWallet();
 
   const [error, setError] = useState("");
   const [showProfileSetup, setShowProfileSetup] = useState(false);
-  const [profileName, setProfileName] = useState("");
-  const [profileEmail, setProfileEmail] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
-  const started = useRef(false);
+  const googleButtonRef = useRef(null);
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+
+  const handleGoogleSuccess = useCallback(async (response) => {
+    if (!response?.credential) {
+      setError("Google did not return a sign-in credential. Please try again.");
+      return;
+    }
+
+    setSavingProfile(true);
+    setError("");
+    try {
+      await linkGoogleProfile(response.credential);
+      setShowProfileSetup(false);
+      setAuthenticationStatus("success");
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      setError(err.message || "Failed to link Google with your wallet profile.");
+    } finally {
+      setSavingProfile(false);
+    }
+  }, [linkGoogleProfile, navigate, setAuthenticationStatus]);
 
   useEffect(() => {
-    if (authenticationStatus === "success" && !showProfileSetup && started.current) {
+    if (!showProfileSetup || !googleClientId) return undefined;
+    let cancelled = false;
+
+    loadGoogleIdentityScript()
+      .then(() => {
+        if (cancelled || !googleButtonRef.current) return;
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: handleGoogleSuccess,
+          auto_select: false,
+          ux_mode: "popup",
+        });
+        googleButtonRef.current.replaceChildren();
+        window.google.accounts.id.renderButton(googleButtonRef.current, {
+          theme: "outline",
+          size: "large",
+          type: "standard",
+          shape: "rectangular",
+          text: "continue_with",
+          logo_alignment: "left",
+          width: Math.min(340, googleButtonRef.current.clientWidth || 340),
+        });
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || "Google sign-in could not be loaded.");
+      });
+
+    return () => { cancelled = true; };
+  }, [showProfileSetup, googleClientId, handleGoogleSuccess]);
+  useEffect(() => {
+    if (authenticationStatus === "success" && !showProfileSetup) {
       const timer = window.setTimeout(() => navigate("/dashboard", { replace: true }), 1000);
       return () => window.clearTimeout(timer);
     }
@@ -54,7 +121,6 @@ export default function Authenticate() {
 
   const handleAuthenticate = async () => {
     if (["signing", "verifying"].includes(authenticationStatus)) return;
-    started.current = true;
     setError("");
 
     try {
@@ -63,7 +129,7 @@ export default function Authenticate() {
       }
       const result = await authenticateWithBackend(signer);
 
-      if (result.user?.profileComplete || result.user?.name) {
+      if (result.user?.googleLinked) {
         setAuthenticationStatus("success");
       } else {
         setShowProfileSetup(true);
@@ -73,106 +139,55 @@ export default function Authenticate() {
     }
   };
 
-  const handleSaveProfile = async (e) => {
-    e.preventDefault();
-    if (!profileName.trim()) {
-      setError("Please enter your name to complete your profile.");
-      return;
-    }
-
-    setSavingProfile(true);
-    setError("");
-
-    try {
-      await updateProfile(profileName.trim(), profileEmail.trim());
-      setShowProfileSetup(false);
-      setAuthenticationStatus("success");
-      navigate("/dashboard", { replace: true });
-    } catch (err) {
-      setError(err.message || "Failed to save profile. Please try again.");
-    } finally {
-      setSavingProfile(false);
-    }
-  };
-
   const busy = ["signing", "verifying"].includes(authenticationStatus);
 
   return (
     <AuthShell
       step={2}
       eyebrow={showProfileSetup ? "Profile setup" : "Secure sign-in"}
-      title={showProfileSetup ? "Complete Your Profile" : "Confirm your account"}
+      title={showProfileSetup ? "Connect your Google account" : "Confirm your account"}
       description={
         showProfileSetup
-          ? "Set up your personal display profile for your BlockWarranty account."
+          ? "Use Google to securely add your name and email. Your wallet remains the account identity."
           : "Sign a gas-free security challenge with MetaMask to verify your wallet ownership."
       }
     >
       {showProfileSetup ? (
-        <form onSubmit={handleSaveProfile} className="space-y-4">
+        <div className="space-y-5">
           <WalletAddress address={walletAddress} compact />
 
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-[#64748B] mb-1.5">
-              Full Name
-            </label>
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-[#94A3B8]">
-                <User size={18} />
-              </span>
-              <input
-                type="text"
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                placeholder="e.g. Harsh"
-                required
-                className="w-full rounded-xl border border-slate-200 bg-[#F8FAFC] py-3 pl-10 pr-4 text-sm font-semibold text-[#0F172A] focus:border-[#2563EB] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#2563EB]"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-[#64748B] mb-1.5">
-              Email Address <span className="text-[#94A3B8] font-normal lowercase">(optional)</span>
-            </label>
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-[#94A3B8]">
-                <Mail size={18} />
-              </span>
-              <input
-                type="email"
-                value={profileEmail}
-                onChange={(e) => setProfileEmail(e.target.value)}
-                placeholder="e.g. user@example.com"
-                className="w-full rounded-xl border border-slate-200 bg-[#F8FAFC] py-3 pl-10 pr-4 text-sm font-semibold text-[#0F172A] focus:border-[#2563EB] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#2563EB]"
-              />
-            </div>
-          </div>
+          <section className="relative overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-6 text-center">
+            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-blue-700 shadow-sm ring-1 ring-blue-100">
+              <LockKeyhole size={22} />
+            </span>
+            <h3 className="mt-4 text-base font-extrabold text-slate-900">One secure step left</h3>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-600">
+              Connect a verified Google account to add your profile name and email. No profile details are entered manually.
+            </p>
+            {googleClientId ? (
+              <div className="mt-5 flex min-h-11 justify-center" aria-label="Continue with Google">
+                <div ref={googleButtonRef} />
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-amber-50 px-3 py-2 text-left text-xs leading-5 text-amber-900">
+                Google sign-in is not configured. Set the Google client ID in the frontend and backend environment, then restart both servers.
+              </p>
+            )}
+          </section>
 
           {error && (
-            <p role="alert" className="text-sm font-medium text-red-600">
+            <p role="alert" className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium leading-5 text-red-700">
               {error}
             </p>
           )}
 
-          <button
-            type="submit"
-            className={`${buttonClass} w-full mt-2`}
-            disabled={savingProfile}
-          >
-            {savingProfile ? (
-              <>
-                <LoaderCircle size={18} className="animate-spin" />
-                Saving profile...
-              </>
-            ) : (
-              <>
-                Save &amp; Enter Dashboard
-                <ArrowRight size={17} />
-              </>
-            )}
-          </button>
-        </form>
+          {savingProfile && (
+            <p className="flex items-center justify-center gap-2 text-sm font-semibold text-blue-700" role="status">
+              <LoaderCircle size={17} className="animate-spin" /> Verifying Google account...
+            </p>
+          )}
+          <p className="text-center text-xs text-slate-500">Your wallet stays in control of product ownership and account access.</p>
+        </div>
       ) : authenticationStatus === "success" ? (
         <div className="py-5 text-center" role="status">
           <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-green-50 text-green-700">

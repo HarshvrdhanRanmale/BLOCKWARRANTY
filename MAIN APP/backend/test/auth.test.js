@@ -1,5 +1,6 @@
 const request = require('supertest');
 const { ethers } = require('ethers');
+const os = require('os');
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const app = require('../src/app');
@@ -26,7 +27,9 @@ describe('BlockWarranty Authentication API, Profile Management & Lifecycle Verif
       await mongoose.disconnect();
     }
 
-    await mongoose.connect(uri);
+    // runtimeAdapters: mongodb driver v7 would otherwise use dynamic import('os'),
+    // which Jest's VM rejects without --experimental-vm-modules (breaks handshake metadata)
+    await mongoose.connect(uri, { runtimeAdapters: { os } });
   });
 
   afterAll(async () => {
