@@ -1,47 +1,36 @@
-/**
- * imageSearchService.js — Universal Marketplace Product Image Search
+﻿/**
+ * imageSearchService.js â€” Direct E-Commerce Marketplace Product Image Search
  *
- * Designed to aggressively find authentic commercial product photos for ANY electronic product
- * (Smartphones, Laptops, Headphones, TVs, Smartwatches, Appliances, Gaming, Audio, etc.)
- * across global and regional e-commerce marketplaces (Amazon, Best Buy, Apple, Flipkart, etc.).
+ * Scrapes product images DIRECTLY from:
+ *   â€¢ Amazon.in / Amazon.com
+ *   â€¢ Flipkart
+ *   â€¢ Best Buy
+ *   â€¢ Croma
+ *   â€¢ Snapdeal
+ *
+ * Falls back to DuckDuckGo / Bing if direct scrapers return fewer than 4 results.
+ * Wikipedia is NOT used.
  */
 
-const MARKETPLACE_PATTERNS = [
-  // Global Marketplaces
-  { id: 'amazon', name: 'Amazon', match: /amazon|media-amazon/i },
-  { id: 'bestbuy', name: 'Best Buy', match: /bestbuy|bbystatic/i },
-  { id: 'walmart', name: 'Walmart', match: /walmart|walmartimages/i },
-  { id: 'target', name: 'Target', match: /target/i },
-  { id: 'ebay', name: 'eBay', match: /ebay/i },
-  { id: 'newegg', name: 'Newegg', match: /newegg/i },
-  { id: 'bhphoto', name: 'B&H Photo', match: /bhphotovideo/i },
-  { id: 'costco', name: 'Costco', match: /costco/i },
+// â”€â”€â”€ Browser-like headers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  // Regional Marketplaces (India / Asia / Europe)
-  { id: 'flipkart', name: 'Flipkart', match: /flipkart|flixcart/i },
-  { id: 'croma', name: 'Croma', match: /croma/i },
-  { id: 'reliancedigital', name: 'Reliance Digital', match: /reliancedigital/i },
-  { id: 'tatacliq', name: 'Tata CLiQ', match: /tatacliq/i },
-  { id: 'vijaysales', name: 'Vijay Sales', match: /vijaysales/i },
-  { id: 'poorvika', name: 'Poorvika', match: /poorvika/i },
-  { id: 'indiamart', name: 'IndiaMART', match: /indiamart|imimg/i },
-  { id: 'ldlc', name: 'LDLC', match: /ldlc/i },
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  Accept:
+    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-IN,en-US;q=0.9,en;q=0.8',
+  'Accept-Encoding': 'gzip, deflate, br',
+  Connection: 'keep-alive',
+  'Upgrade-Insecure-Requests': '1',
+  'Cache-Control': 'no-cache',
+};
 
-  // Direct Manufacturer Stores
-  { id: 'apple', name: 'Apple', match: /apple\.com|cdn-apple\.com/i },
-  { id: 'samsung', name: 'Samsung', match: /samsung/i },
-  { id: 'sony', name: 'Sony', match: /sony/i },
-  { id: 'dell', name: 'Dell', match: /dell/i },
-  { id: 'lenovo', name: 'Lenovo', match: /lenovo/i },
-  { id: 'hp', name: 'HP', match: /hp\.com/i },
-  { id: 'asus', name: 'ASUS', match: /asus/i },
-  { id: 'lg', name: 'LG', match: /lg\.com/i },
-  { id: 'bose', name: 'Bose', match: /bose/i },
-  { id: 'dyson', name: 'Dyson', match: /dyson/i },
-];
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
- * Cleans product name and enriches with description (color, storage, specs)
+ * Cleans product name, strips noise, enriches with color + storage from description.
  */
 function cleanProductName(productName = '', brand = '', description = '') {
   let cleaned = String(productName || '')
@@ -55,230 +44,387 @@ function cleanProductName(productName = '', brand = '', description = '') {
     .replace(/\s+/g, ' ')
     .trim();
 
-  // If description has color or capacity keywords not in cleaned, include them
-  if (description) {
-    const descLower = description.toLowerCase();
-    const colorMatches = descLower.match(/\b(starlight|midnight|space grey|space gray|silver|gold|rose gold|titanium|blue|purple|red|green|yellow|black|white)\b/i);
-    if (colorMatches && !cleaned.toLowerCase().includes(colorMatches[0].toLowerCase())) {
-      cleaned = `${cleaned} ${colorMatches[0]}`;
-    }
+  const colorRegex =
+    /\b(starlight|midnight|space grey|space gray|silver|gold|rose gold|titanium|blue|purple|red|green|yellow|black|white|graphite|alpine|sierra|coral|lavender|cream|phantom)\b/i;
+  if (!cleaned.match(colorRegex) && description) {
+    const c = description.match(colorRegex);
+    if (c) cleaned = `${cleaned} ${c[0]}`;
+  }
+
+  const storageRegex = /\b(\d+\s*(?:GB|TB|MB))\b/i;
+  if (!storageRegex.test(cleaned) && description) {
+    const s = description.match(storageRegex);
+    if (s) cleaned = `${cleaned} ${s[0]}`;
   }
 
   const brandLower = brand.toLowerCase().trim();
-  const cleanedLower = cleaned.toLowerCase();
-
-  if (brand && !cleanedLower.includes(brandLower)) {
+  if (brand && !cleaned.toLowerCase().includes(brandLower)) {
     cleaned = `${brand} ${cleaned}`;
   }
 
-  return cleaned;
+  return cleaned.trim();
 }
 
 /**
- * Extracts alphanumeric and numeric model numbers
+ * Extracts model numbers like "13", "S24", "XR500", "MX560".
  */
 function extractModelNumbers(text = '') {
   const tokens = String(text).match(/\b[A-Za-z0-9\-]{2,20}\b/g) || [];
-  return tokens.filter((token) => {
-    const hasDigit = /\d/.test(token);
-    const hasAlpha = /[A-Za-z]/.test(token);
-    if (/^\d+(?:gb|tb|mb|g|kg|ton|star|w|v|mah|ah|hz|khz|mhz|cm|mm|in|inch)$/i.test(token)) return false;
-    if (hasDigit && hasAlpha) return true;
-    if (/^\d{2,4}$/.test(token)) return true;
+  return tokens.filter((t) => {
+    if (/^\d+(?:gb|tb|mb|g|kg|w|v|mah|hz|cm|mm|in|inch)$/i.test(t)) return false;
+    if (/\d/.test(t) && /[A-Za-z]/.test(t)) return true;
+    if (/^\d{2,4}$/.test(t)) return true;
     return false;
   });
 }
 
-function inspectMarketplace(domain = '', url = '') {
-  const target = `${domain} ${url}`.toLowerCase();
-  for (const item of MARKETPLACE_PATTERNS) {
-    if (item.match.test(target)) {
-      return { isMarketplace: true, label: item.name };
-    }
+/** Safe fetch that never throws. Returns null on error/timeout. */
+async function safeFetch(url, options = {}) {
+  try {
+    const res = await fetch(url, {
+      headers: BROWSER_HEADERS,
+      signal: AbortSignal.timeout(options.timeout || 8000),
+      ...options,
+    });
+    return res.ok ? res : null;
+  } catch {
+    return null;
   }
-  if (domain) {
-    const mainHost = domain.split('.')[0];
-    return {
-      isMarketplace: false,
-      label: mainHost.charAt(0).toUpperCase() + mainHost.slice(1)
-    };
-  }
-  return { isMarketplace: false, label: 'Marketplace' };
 }
 
-/**
- * Engine 1: DuckDuckGo Images API — Returns authentic commercial photos from Best Buy, Amazon, Apple, etc.
- */
-async function queryDuckDuckGoImages(query) {
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5'
-  };
+/** Normalise a raw image URL â€” ensure it's https and large-size. */
+function normaliseImgUrl(url = '') {
+  if (!url || !/^https?:\/\//i.test(url)) return null;
+  // Amazon: upgrade thumbnail to full-size by removing size suffix
+  url = url.replace(/\._[A-Z]+\d+_\./, '.');
+  // Flipkart: ensure large image
+  url = url.replace(/\/\d+\/\d+\//, '/832/832/');
+  return url;
+}
 
+// â”€â”€â”€ Engine 1 â€” Amazon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * Scrapes Amazon.in (and Amazon.com as fallback) search results page.
+ * Extracts product-on-white images from the <img> tags inside result cards.
+ */
+async function scrapeAmazonImages(query) {
+  const results = [];
+
+  const urls = [
+    `https://www.amazon.in/s?k=${encodeURIComponent(query)}&i=electronics`,
+    `https://www.amazon.com/s?k=${encodeURIComponent(query)}&i=electronics`,
+  ];
+
+  for (const url of urls) {
+    const res = await safeFetch(url, { timeout: 9000 });
+    if (!res) continue;
+    const html = await res.text();
+
+    // Amazon embeds image data in data-a-dynamic-image JSON attr
+    const dynamicRegex = /data-a-dynamic-image="([^"]+)"/g;
+    let match;
+    while ((match = dynamicRegex.exec(html)) !== null) {
+      try {
+        const decoded = match[1].replace(/&quot;/g, '"').replace(/&#34;/g, '"');
+        const imgMap = JSON.parse(decoded);
+        // imgMap = { "url": [width, height], ... } â€” pick largest
+        const entries = Object.entries(imgMap);
+        if (!entries.length) continue;
+        entries.sort((a, b) => (b[1][0] * b[1][1]) - (a[1][0] * a[1][1]));
+        const [imgUrl, [w, h]] = entries[0];
+        const cleaned = normaliseImgUrl(imgUrl);
+        if (cleaned) {
+          results.push({
+            title: query,
+            image: cleaned,
+            thumbnail: cleaned,
+            url,
+            width: w || 500,
+            height: h || 500,
+            source: 'amazon',
+          });
+        }
+      } catch { /* skip */ }
+    }
+
+    if (results.length >= 8) break;
+  }
+
+  return results;
+}
+
+// â”€â”€â”€ Engine 2 â€” Flipkart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * Scrapes Flipkart search results and pulls product card images.
+ */
+async function scrapeFlipkartImages(query) {
+  const url = `https://www.flipkart.com/search?q=${encodeURIComponent(query)}&otracker=search&as-show=on&as=off`;
+  const res = await safeFetch(url, {
+    timeout: 9000,
+    headers: {
+      ...BROWSER_HEADERS,
+      Referer: 'https://www.flipkart.com/',
+    },
+  });
+  if (!res) return [];
+
+  const html = await res.text();
+  const results = [];
+
+  // Flipkart uses <img> with src pointing to rukminim CDN
+  // Pattern: "src":"https://rukminim...jpeg"
+  const imgRegex = /"(https:\/\/rukminim\d*\.flixcart\.com\/image\/\d+\/\d+\/[^"]+\.(jpeg|jpg|png|webp))"/gi;
+  let match;
+  const seen = new Set();
+
+  while ((match = imgRegex.exec(html)) !== null) {
+    const raw = match[1];
+    // Upgrade to 832Ã—832 for high-res
+    const imgUrl = normaliseImgUrl(raw);
+    if (!imgUrl || seen.has(imgUrl)) continue;
+    seen.add(imgUrl);
+    results.push({
+      title: query,
+      image: imgUrl,
+      thumbnail: imgUrl,
+      url: 'https://www.flipkart.com',
+      width: 832,
+      height: 832,
+      source: 'flipkart',
+    });
+    if (results.length >= 10) break;
+  }
+
+  return results;
+}
+
+// â”€â”€â”€ Engine 3 â€” Best Buy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * Scrapes Best Buy search results for product images.
+ */
+async function scrapeBestBuyImages(query) {
+  const url = `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(query)}&_dyncharset=UTF-8&id=pcat17071`;
+  const res = await safeFetch(url, {
+    timeout: 9000,
+    headers: {
+      ...BROWSER_HEADERS,
+      Referer: 'https://www.bestbuy.com/',
+    },
+  });
+  if (!res) return [];
+
+  const html = await res.text();
+  const results = [];
+
+  // Best Buy CDN pattern: pisces.bbystatic.com or multimedia.bbycastatic.ca
+  const imgRegex = /"(https:\/\/(?:pisces\.bbystatic\.com|multimedia\.bbycastatic\.ca)[^"]+\.(jpg|jpeg|png|webp))"/gi;
+  let match;
+  const seen = new Set();
+
+  while ((match = imgRegex.exec(html)) !== null) {
+    const imgUrl = match[1];
+    if (seen.has(imgUrl)) continue;
+    seen.add(imgUrl);
+    results.push({
+      title: query,
+      image: imgUrl,
+      thumbnail: imgUrl,
+      url: 'https://www.bestbuy.com',
+      width: 460,
+      height: 460,
+      source: 'bestbuy',
+    });
+    if (results.length >= 8) break;
+  }
+
+  return results;
+}
+
+// â”€â”€â”€ Engine 4 â€” Croma â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * Scrapes Croma (Indian electronics retailer) search results.
+ */
+async function scrapeCromaImages(query) {
+  const url = `https://www.croma.com/searchB?q=${encodeURIComponent(query)}%3Arelevance&langCode=en`;
+  const res = await safeFetch(url, {
+    timeout: 9000,
+    headers: {
+      ...BROWSER_HEADERS,
+      Referer: 'https://www.croma.com/',
+    },
+  });
+  if (!res) return [];
+
+  const html = await res.text();
+  const results = [];
+
+  // Croma CDN: media.croma.com
+  const imgRegex = /"(https:\/\/media\.croma\.com\/image\/upload\/[^"]+\.(jpg|jpeg|png|webp))"/gi;
+  let match;
+  const seen = new Set();
+
+  while ((match = imgRegex.exec(html)) !== null) {
+    const imgUrl = match[1];
+    if (seen.has(imgUrl)) continue;
+    seen.add(imgUrl);
+    results.push({
+      title: query,
+      image: imgUrl,
+      thumbnail: imgUrl,
+      url: 'https://www.croma.com',
+      width: 500,
+      height: 500,
+      source: 'croma',
+    });
+    if (results.length >= 6) break;
+  }
+
+  return results;
+}
+
+// â”€â”€â”€ Engine 5 â€” DuckDuckGo Images (fallback) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+async function queryDuckDuckGoImages(query) {
   try {
     const landingUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`;
-    const landingRes = await fetch(landingUrl, { headers, signal: AbortSignal.timeout(6000) });
-    if (!landingRes.ok) return [];
+    const landingRes = await safeFetch(landingUrl, { timeout: 6000 });
+    if (!landingRes) return [];
 
     const landingText = await landingRes.text();
     const vqdMatch = landingText.match(/vqd=["']?([^"'>&]+)/);
     if (!vqdMatch?.[1]) return [];
 
     const vqd = vqdMatch[1];
-    const imgUrl = `https://duckduckgo.com/i.js?q=${encodeURIComponent(query)}&o=json&p=1&vqd=${vqd}&l=us-en`;
-    const imgRes = await fetch(imgUrl, { headers, signal: AbortSignal.timeout(8000) });
-    if (!imgRes.ok) return [];
+    const imgApiUrl =
+      `https://duckduckgo.com/i.js?q=${encodeURIComponent(query)}&o=json&p=1&vqd=${vqd}&l=us-en&f=,,,,,&v7exp=a`;
+    const imgRes = await safeFetch(imgApiUrl, {
+      timeout: 8000,
+      headers: { ...BROWSER_HEADERS, Referer: 'https://duckduckgo.com/' },
+    });
+    if (!imgRes) return [];
 
     const data = await imgRes.json().catch(() => ({}));
     if (!Array.isArray(data.results)) return [];
+
     return data.results.map((r) => ({
-      title: r.title || query,
-      image: r.image,
+      title:     r.title    || query,
+      image:     r.image,
       thumbnail: r.thumbnail || r.image,
-      url: r.url || '',
-      width: r.width || 0,
-      height: r.height || 0,
+      url:       r.url      || '',
+      width:     r.width    || 0,
+      height:    r.height   || 0,
+      source:    'duckduckgo',
     }));
   } catch {
     return [];
   }
 }
 
-/**
- * Engine 2: Bing Images Scraper
- */
+// â”€â”€â”€ Engine 6 â€” Bing Images (fallback) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 async function queryBingImages(query) {
-  const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1`;
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9',
-  };
+  const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1&tsc=ImageBasicHover`;
+  const res = await safeFetch(url, {
+    timeout: 8000,
+    headers: { ...BROWSER_HEADERS, Referer: 'https://www.bing.com/' },
+  });
+  if (!res) return [];
 
-  try {
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return [];
-    const html = await res.text();
-    const regex = /m="({[^"]+})"/g;
-    const items = [];
-    let match;
-    while ((match = regex.exec(html)) !== null) {
-      try {
-        const decoded = match[1].replace(/&quot;/g, '"');
-        const json = JSON.parse(decoded);
-        if (json.murl && /^https?:\/\//i.test(json.murl)) {
-          items.push({
-            title: json.t || json.desc || query,
-            image: json.murl,
-            thumbnail: json.turl || json.murl,
-            url: json.purl || '',
-            width: json.mw || 0,
-            height: json.mh || 0,
-          });
-        }
-      } catch {}
-    }
-    return items;
-  } catch {
-    return [];
+  const html = await res.text();
+  const regex = /m="({[^"]+})"/g;
+  const items = [];
+  let match;
+
+  while ((match = regex.exec(html)) !== null) {
+    try {
+      const decoded = match[1].replace(/&quot;/g, '"');
+      const json = JSON.parse(decoded);
+      if (json.murl && /^https?:\/\//i.test(json.murl)) {
+        items.push({
+          title:     json.t    || json.desc || query,
+          image:     json.murl,
+          thumbnail: json.turl || json.murl,
+          url:       json.purl || '',
+          width:     json.mw   || 0,
+          height:    json.mh   || 0,
+          source:    'bing',
+        });
+      }
+    } catch { /* skip */ }
   }
+  return items;
 }
 
-/**
- * Engine 3: Wikipedia & Wikimedia Commons API (Photo only, strictly filters out .svg vector wireframes)
- */
-async function queryWikipediaImages(query) {
-  try {
-    const url = `https://en.wikipedia.org/w/api.php?action=query&format=json&prop=pageimages&generator=search&gsrsearch=${encodeURIComponent(query)}&pithumbsize=800&origin=*`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'BlockWarranty/1.0 (contact@blockwarranty.app)' },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const pages = Object.values(data?.query?.pages || {});
-    return pages
-      .filter((p) => (
-        p.thumbnail?.source &&
-        !p.thumbnail.source.includes('.svg') &&
-        !/logo|flag|icon|building|store|apple_store|vector/i.test(p.title)
-      ))
-      .map((p) => ({
-        title: p.title,
-        image: p.thumbnail.source,
-        thumbnail: p.thumbnail.source,
-        url: `https://en.wikipedia.org/?curid=${p.pageid}`,
-        width: p.thumbnail.width || 800,
-        height: p.thumbnail.height || 800,
-      }));
-  } catch {
-    return [];
-  }
-}
+// â”€â”€â”€ Ranker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/**
- * Intelligent Multi-Dimensional Product Image Ranker.
- * Strictly discards non-positive and irrelevant matches.
- */
+const SOURCE_BOOST = {
+  amazon:     70,
+  flipkart:   70,
+  bestbuy:    65,
+  croma:      60,
+  duckduckgo: 0,
+  bing:       0,
+};
+
+const IRRELEVANT_PATTERN =
+  /\b(?:ripe|fruit|branch|eating|recipe|botanical|flora|orchard|grove|garden|food|juice|blossom|petal|storefront|building|headquarters|campus|exercise|fitness|sheet\s*music|spiral\s*bound|schematic|wiring|error\s*code|diagram|logo|vector|illustration|artwork|stock\s*photo|stock\s*image|clipart|cartoon|animal|bird|dog|cat|plant|tree|leaf)\b/i;
+
+const COMMERCIAL_PATTERN =
+  /\b(?:buy|shop|price|deal|review|spec|unbox|official|launch|release|gb|tb|inch|hz)\b/i;
+
 function rankCandidates(rawResults, { query, models, brand }) {
-  const queryTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
-  const brandTokens = brand.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
-  const nonBrandTokens = queryTokens.filter((t) => !brandTokens.includes(t) && !/^(the|and|for|with|pro|max|plus|gb|tb)$/i.test(t));
+  const queryTokens    = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
+  const brandTokens    = brand.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
+  const nonBrandTokens = queryTokens.filter(
+    (t) => !brandTokens.includes(t) && !/^(the|and|for|with|pro|max|plus|gb|tb|buy)$/i.test(t)
+  );
 
-  const scored = [];
-  const seenImageKeys = new Set();
-  const seenTitles = new Set();
+  const scored      = [];
+  const seenImgKeys = new Set();
+  const seenTitles  = new Set();
 
   for (const item of rawResults) {
     const imgUrl = item.image || item.thumbnail;
     if (!imgUrl || !/^https?:\/\//i.test(imgUrl)) continue;
-
-    // Reject vector wireframes or svg URLs completely
-    if (/\.svg(?:\.png)?/i.test(imgUrl)) continue;
+    if (/\.svg(?:\.png)?/i.test(imgUrl)) continue; // reject SVGs
 
     const urlKey = imgUrl.split('?')[0].split('/').pop().toLowerCase();
-    if (seenImageKeys.has(urlKey)) continue;
-    seenImageKeys.add(urlKey);
+    if (seenImgKeys.has(urlKey)) continue;
+    seenImgKeys.add(urlKey);
 
     const titleLower = String(item.title || '').toLowerCase();
-    const titleKey = titleLower.slice(0, 40);
+    const titleKey   = titleLower.slice(0, 40);
     if (seenTitles.has(titleKey) && scored.length >= 4) continue;
     seenTitles.add(titleKey);
 
     let domain = '';
     try {
-      domain = new URL(item.url || item.source || '').hostname.replace(/^www\./, '').toLowerCase();
-    } catch {
-      domain = '';
-    }
+      domain = new URL(item.url || '').hostname.replace(/^www\./, '').toLowerCase();
+    } catch { domain = ''; }
 
-    const { isMarketplace, label: sourceLabel } = inspectMarketplace(domain, item.url || item.image || '');
-
-    let score = 0;
+    let score        = 0;
     let modelMatched = false;
 
-    // 1. Model number match (+60)
+    // 1. Marketplace source bonus (biggest signal â€” direct scrapers always win)
+    score += SOURCE_BOOST[item.source] || 0;
+
+    // 2. Model number match in title (+60) or image URL (+20)
     for (const model of models) {
-      if (titleLower.includes(model.toLowerCase())) {
-        score += 60;
-        modelMatched = true;
-      }
+      const m = model.toLowerCase();
+      if (titleLower.includes(m))           { score += 60; modelMatched = true; }
+      if (imgUrl.toLowerCase().includes(m)) { score += 20; modelMatched = true; }
     }
 
-    // 2. Marketplace boost (+45)
-    if (isMarketplace) {
-      score += 45;
-    }
-
-    // 3. Brand match (+25)
+    // 3. Brand match in title
     for (const b of brandTokens) {
-      if (titleLower.includes(b)) {
-        score += 25;
-      }
+      if (titleLower.includes(b)) score += 25;
     }
 
-    // 4. Overlapping query tokens (+10 each)
+    // 4. Query token overlap
     let nonBrandMatchedCount = 0;
     for (const token of queryTokens) {
       if (titleLower.includes(token)) {
@@ -287,37 +433,36 @@ function rankCandidates(rawResults, { query, models, brand }) {
       }
     }
 
-    // 5. Heavy penalty if product has non-brand words (e.g. "iphone", "13") and NONE matched
-    if (nonBrandTokens.length > 0 && nonBrandMatchedCount === 0) {
-      score -= 100;
-    }
+    // 5. Penalty: no non-brand tokens matched at all
+    if (nonBrandTokens.length > 0 && nonBrandMatchedCount === 0) score -= 120;
 
-    // 6. Strong negative penalty for botanical fruits, food, recipes, buildings, logos, wireframes
-    if (/ripe|fruit|branch|eating|recipe|botanical|storefront|building|headquarters|exercise|sheet music|spiral bound|schematic|wiring|error code|diagram|logo|vector/i.test(titleLower)) {
-      score -= 100;
-    }
+    // 6. Hard penalty for irrelevant content (botanical, food, logos, etc.)
+    if (IRRELEVANT_PATTERN.test(titleLower)) score -= 120;
 
-    // 7. Standard product photography aspect ratio
+    // 7. Commercial-intent bonus
+    if (COMMERCIAL_PATTERN.test(titleLower)) score += 15;
+
+    // 8. Aspect-ratio bonus (square or near-square = product photography)
     if (item.width && item.height) {
       const ratio = item.width / item.height;
-      if (ratio >= 0.70 && ratio <= 1.40) score += 12;
+      if (ratio >= 0.65 && ratio <= 1.55) score += 12;
       if (item.width >= 350 && item.height >= 350) score += 10;
     }
 
-    // STRICT: Discard any result with score <= 0 (eliminates fruits, buildings, logos)
+    // Gate: discard non-positive scores
     if (score <= 0) continue;
 
     scored.push({
-      title: item.title || query,
-      imageUrl: item.image || item.thumbnail,
-      thumbnailUrl: item.thumbnail || item.image,
-      sourceUrl: item.url || '',
+      title:        item.title || query,
+      imageUrl:     imgUrl,
+      thumbnailUrl: item.thumbnail || imgUrl,
+      sourceUrl:    item.url || '',
       domain,
-      sourceLabel,
-      isMarketplace,
+      sourceLabel:  item.source || domain || 'Marketplace',
+      isMarketplace: ['amazon', 'flipkart', 'bestbuy', 'croma'].includes(item.source),
       modelMatched,
       score,
-      width: item.width || null,
+      width:  item.width  || null,
       height: item.height || null,
     });
   }
@@ -326,47 +471,52 @@ function rankCandidates(rawResults, { query, models, brand }) {
   return scored;
 }
 
-/**
- * Universal search entrypoint for ANY electronic product.
- */
+// â”€â”€â”€ Public Entry Point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 async function searchProductImages({ productName = '', brand = '', category = '', description = '' }) {
   const cleanName = cleanProductName(productName, brand, description);
-  const models = extractModelNumbers(productName);
+  const models    = extractModelNumbers(productName);
 
-  const queryAttempts = [
-    cleanName,
-    models.length ? `${brand} ${models[0]}`.trim() : null,
-    models.length ? `${cleanName.split(' ').slice(0, 3).join(' ')} ${models[0]}`.trim() : null,
-    category ? `${brand} ${category}`.trim() : null,
-    cleanName.split(' ').slice(0, 4).join(' '),
-    productName.trim().slice(0, 80),
-  ].filter(Boolean);
+  // Primary query for direct scrapers
+  const primaryQuery = cleanName;
+  // Fallback: shorter, model-focused
+  const fallbackQuery = models.length
+    ? `${brand} ${models[0]}`.trim()
+    : cleanName.split(' ').slice(0, 4).join(' ');
 
   let rawResults = [];
 
-  for (const q of queryAttempts) {
-    if (rawResults.length >= 12) break;
+  // â”€â”€ Phase 1: Direct marketplace scrapers (best quality) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const [amazonItems, flipkartItems, bestBuyItems, cromaItems] = await Promise.allSettled([
+    scrapeAmazonImages(primaryQuery),
+    scrapeFlipkartImages(primaryQuery),
+    scrapeBestBuyImages(primaryQuery),
+    scrapeCromaImages(primaryQuery),
+  ]);
 
-    // 1. DuckDuckGo (Commercial e-commerce photos: Best Buy, Amazon, Apple, Walmart, etc.)
-    const ddgItems = await queryDuckDuckGoImages(q);
-    if (ddgItems.length > 0) {
-      rawResults = [...rawResults, ...ddgItems];
+  for (const r of [amazonItems, flipkartItems, bestBuyItems, cromaItems]) {
+    if (r.status === 'fulfilled') rawResults = [...rawResults, ...r.value];
+  }
+
+  // â”€â”€ Phase 2: Fallback query on marketplaces if still thin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  if (rawResults.length < 6 && fallbackQuery !== primaryQuery) {
+    const [a2, f2] = await Promise.allSettled([
+      scrapeAmazonImages(fallbackQuery),
+      scrapeFlipkartImages(fallbackQuery),
+    ]);
+    for (const r of [a2, f2]) {
+      if (r.status === 'fulfilled') rawResults = [...rawResults, ...r.value];
     }
+  }
 
-    // 2. Bing Images fallback
-    if (rawResults.length < 8) {
-      const bingItems = await queryBingImages(q);
-      if (bingItems.length > 0) {
-        rawResults = [...rawResults, ...bingItems];
-      }
-    }
-
-    // 3. Wikipedia fallback (photo only, no SVG wireframes)
-    if (rawResults.length < 4) {
-      const wikiItems = await queryWikipediaImages(q);
-      if (wikiItems.length > 0) {
-        rawResults = [...rawResults, ...wikiItems];
-      }
+  // â”€â”€ Phase 3: DuckDuckGo + Bing fallback if still thin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  if (rawResults.length < 6) {
+    const [ddg, bing] = await Promise.allSettled([
+      queryDuckDuckGoImages(`${primaryQuery} buy`),
+      queryBingImages(`${primaryQuery} buy`),
+    ]);
+    for (const r of [ddg, bing]) {
+      if (r.status === 'fulfilled') rawResults = [...rawResults, ...r.value];
     }
   }
 
@@ -381,6 +531,7 @@ async function searchProductImages({ productName = '', brand = '', category = ''
   }
 
   const ranked = rankCandidates(rawResults, { query: cleanName, models, brand });
+
   if (!ranked.length) {
     return {
       message: 'No suitable product photos found. You can upload an image instead.',
@@ -391,9 +542,9 @@ async function searchProductImages({ productName = '', brand = '', category = ''
     };
   }
 
-  const bestImage = ranked[0];
+  const bestImage    = ranked[0];
   const isExactMatch = Boolean(bestImage.modelMatched || bestImage.score >= 60);
-  const topImages = ranked.slice(0, 8);
+  const topImages    = ranked.slice(0, 8);
 
   return {
     message: isExactMatch
