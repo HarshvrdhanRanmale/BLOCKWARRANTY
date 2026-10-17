@@ -1,4 +1,4 @@
-﻿/**
+/**
  * imageSearchService.js — Electronics Product Image Search (India-optimised)
  *
  * Engines (all run in PARALLEL):
@@ -29,7 +29,7 @@ const PRODUCT_CDN =
 
 /** Hard-penalise titles that indicate clearly irrelevant images. */
 const IRRELEVANT =
-  /\b(ripe|fruit|branch|eating|recipe|botanical|flora|orchard|grove|garden|food|juice|blossom|petal|storefront|building|headquarters|campus|exercise|fitness|sheet\s*music|schematic|wiring|clipart|cartoon|plant|tree|leaf|animal|dog|cat|bird|fish|insect|bug)\b/i;
+  /\b(ripe|fruit|branch|eating|recipe|botanical|flora|orchard|grove|garden|food|juice|blossom|petal|storefront|building|headquarters|campus|exercise|fitness|sheet\s*music|schematic|wiring|clipart|cartoon|plant|tree|leaf|animal|dog|cat|bird|fish|insect|bug|stock\s*photo|stock\s*image|public\s*domain|free\s*photo|free\s*stock|royalty.*free|illustration|artwork|wallpaper|icon\b|logo|apple\s*store|apple\s*park|apple\s*campus|apple\s*inc)\b/i;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -288,11 +288,19 @@ function rankCandidates(rawResults, { cleanName, models, brand }) {
       }
     }
 
-    // ⑤ Mild penalty if NO non-brand tokens match AND not a CDN image
-    if (nbT.length > 0 && nbCount === 0 && score < 80) score -= 50;
+    // ⑤ HARD SKIP: if NO non-brand product tokens match AND not a product CDN image
+    //    This is the key filter that eliminates apple-fruit / Apple-Store / logos
+    //    when searching for "Apple iPhone 13" — only real iPhone images get through.
+    const isProductCDN = PRODUCT_CDN.test(imgUrl);
+    if (nbT.length > 0 && nbCount === 0 && !isProductCDN) continue;
 
-    // ⑥ Hard penalty for irrelevant content
-    if (IRRELEVANT.test(titleLow)) score -= 120;
+    // ⑥ Hard penalty for irrelevant content (belt + suspenders)
+    if (IRRELEVANT.test(titleLow)) score -= 150;
+
+    // ⑦ Penalty for ambiguous brand-only titles (e.g. "Apple" without any model word)
+    //    Catches "Apple Logo", "Apple Free Stock Photo", "Apple Store" etc.
+    const hasAnyProductWord = nbT.some(t => titleLow.includes(t));
+    if (bT.length > 0 && !hasAnyProductWord && !isProductCDN) score -= 100;
 
     // ⑦ Commercial-intent bonus
     if (/\b(buy|shop|price|deal|review|spec|unbox|official|flipkart|amazon|croma|bestbuy|snapdeal|myntra)\b/i.test(titleLow)) score += 15;
@@ -304,9 +312,8 @@ function rankCandidates(rawResults, { cleanName, models, brand }) {
       if (item.width >= 300 && item.height >= 300) score += 10;
     }
 
-    // Gate: only truly negative results are discarded
-    // CDN images always pass (score >= 80 after step ①)
-    if (score <= -30) continue;
+    // Gate: discard anything with score <= 0
+    if (score <= 0) continue;
 
     let domain = '';
     try { domain = new URL(item.url || imgUrl).hostname.replace(/^www\./, ''); } catch {}
