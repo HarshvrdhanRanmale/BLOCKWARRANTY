@@ -64,7 +64,7 @@ function documentSignatureMatches(fileType, buffer) {
     );
   }
   if (fileType === 'application/pdf') {
-    return ascii.startsWith('%PDF-');
+    return ascii.startsWith('%PDF-') || buffer.subarray(0, 1024).indexOf(Buffer.from('%PDF-')) !== -1;
   }
   return false;
 }
@@ -96,7 +96,7 @@ function detectMimeType(buffer) {
   ) {
     return 'image/tiff';
   }
-  if (ascii.startsWith('%PDF-')) {
+  if (ascii.startsWith('%PDF-') || buffer.subarray(0, 1024).indexOf(Buffer.from('%PDF-')) !== -1) {
     return 'application/pdf';
   }
   return null;
@@ -126,7 +126,7 @@ function validateDocumentBuffer(fileType, buffer, maxBytes = MAX_DOCUMENT_BYTES)
     return detectedType;
   }
 
-  const error = new Error('The file content does not match any supported document type (JPG, PNG, WebP, HEIC, GIF, BMP, TIFF, or PDF).');
+  const error = new Error('The file content is unsupported or does not match claimed document type (JPG, PNG, WebP, HEIC, GIF, BMP, TIFF, or PDF).');
   error.status = 400;
   throw error;
 }

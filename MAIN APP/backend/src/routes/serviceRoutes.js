@@ -77,16 +77,17 @@ async function findOwnedProduct(req) {
 }
 
 function documentSignatureMatches(fileType, buffer) {
-  const ascii = buffer.toString('ascii');
-  if (fileType === 'image/jpeg') return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  if (!Buffer.isBuffer(buffer) || buffer.length < 3) return false;
+  const ascii = buffer.toString('ascii', 0, Math.min(buffer.length, 1024));
+  if (fileType === 'image/jpeg') return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8;
   if (fileType === 'image/png') return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-  if (fileType === 'image/webp') return buffer.length >= 12 && ascii.slice(0, 4) === 'RIFF' && ascii.slice(8, 12) === 'WEBP';
+  if (fileType === 'image/webp') return buffer.length >= 12 && ascii.slice(0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
   if (fileType === 'image/gif') return ascii.startsWith('GIF87a') || ascii.startsWith('GIF89a');
   if (fileType === 'image/bmp') return ascii.startsWith('BM');
   if (fileType === 'image/tiff') return buffer.length >= 4 && (buffer.subarray(0, 4).equals(Buffer.from([0x49, 0x49, 0x2a, 0x00])) || buffer.subarray(0, 4).equals(Buffer.from([0x4d, 0x4d, 0x00, 0x2a])));
   if (['image/avif', 'image/heic', 'image/heif'].includes(fileType)) return ascii.slice(4, 8) === 'ftyp' && /avif|avis|heic|heix|hevc|hevx|mif1|msf1/.test(ascii.slice(8, 16));
   if (fileType === 'image/svg+xml') return /^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(buffer.toString('utf8', 0, Math.min(buffer.length, 1024)));
-  if (fileType === 'application/pdf') return ascii.startsWith('%PDF-');
+  if (fileType === 'application/pdf') return ascii.startsWith('%PDF-') || buffer.subarray(0, 1024).indexOf(Buffer.from('%PDF-')) !== -1;
   if (['application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint'].includes(fileType)) return buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
   if (['application/rtf', 'text/rtf'].includes(fileType)) return /^\s*\{\\rtf/i.test(buffer.toString('utf8', 0, Math.min(buffer.length, 32)));
   if (fileType.startsWith('application/vnd.openxmlformats-officedocument.') || fileType.startsWith('application/vnd.oasis.opendocument.')) return ascii.startsWith('PK\u0003\u0004');
@@ -98,18 +99,52 @@ function documentSignatureMatches(fileType, buffer) {
   return false;
 }
 
+function detectDocumentType(buffer, fallbackType = 'application/octet-stream') {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 3) return null;
+  const ascii = buffer.toString('ascii', 0, Math.min(buffer.length, 1024));
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8) return 'image/jpeg';
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
+  if (buffer.length >= 12 && ascii.slice(0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  if (ascii.startsWith('GIF87a') || ascii.startsWith('GIF89a')) return 'image/gif';
+  if (ascii.startsWith('BM')) return 'image/bmp';
+  if (buffer.length >= 4 && (buffer.subarray(0, 4).equals(Buffer.from([0x49, 0x49, 0x2a, 0x00])) || buffer.subarray(0, 4).equals(Buffer.from([0x4d, 0x4d, 0x00, 0x2a])))) return 'image/tiff';
+  if (ascii.slice(4, 8) === 'ftyp' && /avif|avis|heic|heix|hevc|hevx|mif1|msf1/.test(ascii.slice(8, 16))) return 'image/heic';
+  if (/^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(buffer.toString('utf8', 0, Math.min(buffer.length, 1024)))) return 'image/svg+xml';
+  if (ascii.startsWith('%PDF-') || buffer.subarray(0, 1024).indexOf(Buffer.from('%PDF-')) !== -1) return 'application/pdf';
+  if (buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))) return fallbackType.startsWith('application/msword') || fallbackType.startsWith('application/vnd.ms-') ? fallbackType : 'application/msword';
+  if (/^\s*\{\\rtf/i.test(ascii.slice(0, 32))) return 'application/rtf';
+  if (ascii.startsWith('PK\u0003\u0004')) return fallbackType.startsWith('application/vnd.openxml') || fallbackType.startsWith('application/vnd.oasis') ? fallbackType : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (!buffer.includes(0)) return 'text/plain';
+  return null;
+}
+
 function readDocument(req) {
   const { fileData, fileType } = req.body || {};
   const fileName = stringField(req.body?.fileName, 255) || 'service-document';
   const extension = fileName.split('.').pop()?.toLowerCase() || '';
   const candidateType = !fileType || fileType === 'application/octet-stream' ? DOCUMENT_TYPES[extension] : fileType;
-  const normalizedType = typeof candidateType === 'string' && /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(candidateType) ? candidateType.slice(0, 100) : 'application/octet-stream';
+  let normalizedType = typeof candidateType === 'string' && /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(candidateType) ? candidateType.slice(0, 100) : 'application/octet-stream';
   if (typeof fileData !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(fileData)) {
     const error = new Error('The selected file could not be read. Please choose it again.'); error.status = 400; throw error;
   }
   const buffer = Buffer.from(fileData, 'base64');
   if (!buffer.length || buffer.length > MAX_DOCUMENT_BYTES) { const error = new Error('Service document must be 15 MB or smaller.'); error.status = buffer.length ? 413 : 400; throw error; }
-  if (Object.values(DOCUMENT_TYPES).includes(normalizedType) && !documentSignatureMatches(normalizedType, buffer)) { const error = new Error('The file contents do not match the selected document type.'); error.status = 400; throw error; }
+  
+  if (documentSignatureMatches(normalizedType, buffer)) {
+    return { buffer, fileType: normalizedType, fileName };
+  }
+
+  // Auto-detect file format if declared MIME type or extension is mismatched
+  const detectedType = detectDocumentType(buffer, normalizedType);
+  if (detectedType) {
+    return { buffer, fileType: detectedType, fileName };
+  }
+
+  if (Object.values(DOCUMENT_TYPES).includes(normalizedType)) {
+    const error = new Error('The file contents do not match any recognized document or image format. Please upload a valid JPG, PNG, WebP, HEIC, or PDF.');
+    error.status = 400;
+    throw error;
+  }
   return { buffer, fileType: normalizedType, fileName };
 }
 
