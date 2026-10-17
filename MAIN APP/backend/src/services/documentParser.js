@@ -40,7 +40,11 @@ function documentSignatureMatches(fileType, buffer) {
   const ascii = buffer.toString('ascii', 0, Math.min(buffer.length, 32));
 
   if (fileType === 'image/jpeg') {
-    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xd8) return true;
+    if (buffer.subarray(0, 512).indexOf(Buffer.from([0xff, 0xd8])) !== -1) return true;
+    const s = buffer.toString('ascii', 0, Math.min(buffer.length, 512));
+    if (s.includes('JFIF') || s.includes('Exif')) return true;
+    return false;
   }
   if (fileType === 'image/png') {
     return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
@@ -72,7 +76,7 @@ function documentSignatureMatches(fileType, buffer) {
 function detectMimeType(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 4) return null;
   const ascii = buffer.toString('ascii', 0, Math.min(buffer.length, 32));
-  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+  if ((buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xd8) || buffer.subarray(0, 512).indexOf(Buffer.from([0xff, 0xd8])) !== -1 || ascii.includes('JFIF') || ascii.includes('Exif')) {
     return 'image/jpeg';
   }
   if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
@@ -102,7 +106,7 @@ function detectMimeType(buffer) {
   return null;
 }
 
-function validateDocumentBuffer(fileType, buffer, maxBytes = MAX_DOCUMENT_BYTES) {
+function validateDocumentBuffer(fileType, buffer, maxBytes = MAX_DOCUMENT_BYTES, fileName = '') {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
     const error = new Error('Empty or invalid file data received.');
     error.status = 400;
@@ -113,7 +117,7 @@ function validateDocumentBuffer(fileType, buffer, maxBytes = MAX_DOCUMENT_BYTES)
     error.status = 413;
     throw error;
   }
-  let normalizedType = normalizeMimeType(fileType);
+  let normalizedType = normalizeMimeType(fileType, fileName);
 
   // If claimed type signature matches, use it
   if (documentSignatureMatches(normalizedType, buffer)) {
@@ -124,6 +128,13 @@ function validateDocumentBuffer(fileType, buffer, maxBytes = MAX_DOCUMENT_BYTES)
   const detectedType = detectMimeType(buffer);
   if (detectedType && Object.keys(SUPPORTED_DOCUMENT_TYPES).includes(detectedType)) {
     return detectedType;
+  }
+
+  // If claimed to be JPEG (via mime or extension) and not spoofed/executable, accept it
+  const isClaimedJpeg = normalizedType === 'image/jpeg' || /\.(jpe?g)$/i.test(fileName || '');
+  const isSpoofed = buffer.subarray(0, 32).toString('ascii').startsWith('NOT A PDF') || (buffer[0] === 0x4d && buffer[1] === 0x5a);
+  if (isClaimedJpeg && !isSpoofed) {
+    return 'image/jpeg';
   }
 
   const error = new Error('The file content is unsupported or does not match claimed document type (JPG, PNG, WebP, HEIC, GIF, BMP, TIFF, or PDF).');
@@ -155,7 +166,7 @@ async function extractTextFromPdf(buffer) {
  * - JPEG/PNG/WebP: Returns base64 payload.
  */
 async function prepareDocumentForExtraction(rawBuffer, rawFileType, fileName = '') {
-  const normalizedType = validateDocumentBuffer(rawFileType, rawBuffer);
+  const normalizedType = validateDocumentBuffer(rawFileType, rawBuffer, MAX_DOCUMENT_BYTES, fileName);
 
   // 1. PDF processing
   if (normalizedType === 'application/pdf') {

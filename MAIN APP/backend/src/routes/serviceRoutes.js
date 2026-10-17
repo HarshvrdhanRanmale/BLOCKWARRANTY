@@ -79,7 +79,7 @@ async function findOwnedProduct(req) {
 function documentSignatureMatches(fileType, buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 3) return false;
   const ascii = buffer.toString('ascii', 0, Math.min(buffer.length, 1024));
-  if (fileType === 'image/jpeg') return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8;
+  if (fileType === 'image/jpeg') return (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xd8) || buffer.subarray(0, 512).indexOf(Buffer.from([0xff, 0xd8])) !== -1 || ascii.includes('JFIF') || ascii.includes('Exif');
   if (fileType === 'image/png') return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   if (fileType === 'image/webp') return buffer.length >= 12 && ascii.slice(0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
   if (fileType === 'image/gif') return ascii.startsWith('GIF87a') || ascii.startsWith('GIF89a');
@@ -102,7 +102,7 @@ function documentSignatureMatches(fileType, buffer) {
 function detectDocumentType(buffer, fallbackType = 'application/octet-stream') {
   if (!Buffer.isBuffer(buffer) || buffer.length < 3) return null;
   const ascii = buffer.toString('ascii', 0, Math.min(buffer.length, 1024));
-  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8) return 'image/jpeg';
+  if ((buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xd8) || buffer.subarray(0, 512).indexOf(Buffer.from([0xff, 0xd8])) !== -1 || ascii.includes('JFIF') || ascii.includes('Exif')) return 'image/jpeg';
   if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
   if (buffer.length >= 12 && ascii.slice(0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
   if (ascii.startsWith('GIF87a') || ascii.startsWith('GIF89a')) return 'image/gif';
