@@ -47,8 +47,23 @@ export default function UniversalDocumentUpload({
   const [convertingHeic, setConvertingHeic] = useState(false);
   const [localError, setLocalError] = useState('');
   const [pasteActive, setPasteActive] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [localBlobUrl, setLocalBlobUrl] = useState('');
   const fileInputRef = useRef(null);
   const containerRef = useRef(null);
+
+  useEffect(() => {
+    setImageError(false);
+    if (file instanceof Blob && (file.type?.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(file.name || ''))) {
+      const url = URL.createObjectURL(file);
+      setLocalBlobUrl(url);
+      return () => {
+        URL.revokeObjectURL(url);
+      };
+    } else {
+      setLocalBlobUrl('');
+    }
+  }, [file]);
 
   const maxSizeBytes = maxSizeMB * 1024 * 1024;
 
@@ -116,14 +131,19 @@ export default function UniversalDocumentUpload({
       }
 
       // Standard images (JPEG, PNG, WebP)
-      const reader = new FileReader();
-      reader.onload = () => {
-        onFileSelect(rawFile, reader.result, rawFile);
-      };
-      reader.onerror = () => {
-        setLocalError('Could not read the selected file. Please try again.');
-      };
-      reader.readAsDataURL(rawFile);
+      try {
+        const objectUrl = URL.createObjectURL(rawFile);
+        onFileSelect(rawFile, objectUrl, rawFile);
+      } catch {
+        const reader = new FileReader();
+        reader.onload = () => {
+          onFileSelect(rawFile, reader.result, rawFile);
+        };
+        reader.onerror = () => {
+          setLocalError('Could not read the selected file. Please try again.');
+        };
+        reader.readAsDataURL(rawFile);
+      }
     },
     [maxSizeBytes, maxSizeMB, onFileSelect]
   );
@@ -286,10 +306,11 @@ export default function UniversalDocumentUpload({
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
             {/* Document Preview Thumbnail */}
             <div className="flex h-36 w-full shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:h-28 sm:w-28">
-              {preview ? (
+              {!imageError && (preview || localBlobUrl) ? (
                 <img
-                  src={preview}
+                  src={preview || localBlobUrl}
                   alt="Document preview"
+                  onError={() => setImageError(true)}
                   className="h-full w-full object-contain p-1"
                 />
               ) : isPdf ? (
@@ -302,7 +323,9 @@ export default function UniversalDocumentUpload({
               ) : (
                 <div className="flex flex-col items-center justify-center text-slate-400">
                   <ImageIcon size={32} />
-                  <span className="mt-1 text-[10px] font-bold text-slate-500">Document</span>
+                  <span className="mt-1 text-[10px] font-bold text-slate-500">
+                    {file?.name?.split('.').pop()?.toUpperCase() || 'Document'}
+                  </span>
                 </div>
               )}
             </div>

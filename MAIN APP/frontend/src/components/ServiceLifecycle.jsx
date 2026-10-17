@@ -52,7 +52,7 @@ export default function ServiceLifecycle({ product, token, walletAddress }) {
       setError('Service document must be 15 MB or smaller.'); setFile(null); setFileType(''); setPreview(''); return;
     }
     setFileType(normalizedType);
-    setPreview(previewUrl || '');
+    setPreview(previewUrl || (selected instanceof Blob ? URL.createObjectURL(selected) : ''));
     const reader = new FileReader();
     reader.onload = () => setFileData(String(reader.result).split(',')[1] || '');
     reader.onerror = () => setError('Could not read this file. Please choose it again.');
@@ -60,12 +60,26 @@ export default function ServiceLifecycle({ product, token, walletAddress }) {
   };
 
   const extract = async () => {
-    if (!fileData || !file) return setError('Upload a service bill first.');
+    let data = fileData;
+    if (!data && file) {
+      try {
+        data = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result).split(',')[1] || '');
+          r.onerror = () => reject(new Error('Could not read this file. Please choose it again.'));
+          r.readAsDataURL(file);
+        });
+        setFileData(data);
+      } catch (err) {
+        return setError(err.message);
+      }
+    }
+    if (!data || !file) return setError('Upload a service bill first.');
     setExtracting(true); setError(''); setNotice('');
     try {
       const response = await fetch(`${API_BASE}/api/products/${encodeURIComponent(product.productId)}/services/extract`, {
         method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData, fileType, fileName: file.name })
+        body: JSON.stringify({ fileData: data, fileType, fileName: file.name })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || result.error || 'Extraction failed. You can still fill the form manually.');
