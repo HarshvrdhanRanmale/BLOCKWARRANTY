@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import heic2any from 'heic2any';
 
-const ACCEPTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.pdf'];
+const ACCEPTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.gif', '.bmp', '.tif', '.tiff', '.pdf'];
 const ACCEPTED_MIMES = [
   'image/jpeg',
   'image/jpg',
@@ -20,6 +20,9 @@ const ACCEPTED_MIMES = [
   'image/webp',
   'image/heic',
   'image/heif',
+  'image/gif',
+  'image/bmp',
+  'image/tiff',
   'application/pdf',
 ];
 const ACCEPT_ATTRIBUTE = ACCEPTED_EXTENSIONS.join(',') + ',' + ACCEPTED_MIMES.join(',');

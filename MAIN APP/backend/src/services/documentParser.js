@@ -9,12 +9,17 @@ const SUPPORTED_DOCUMENT_TYPES = {
   'image/webp': ['webp'],
   'image/heic': ['heic'],
   'image/heif': ['heif'],
+  'image/gif': ['gif'],
+  'image/bmp': ['bmp'],
+  'image/tiff': ['tif', 'tiff'],
   'application/pdf': ['pdf'],
 };
 
 function normalizeMimeType(candidateType, fileName = '') {
   let type = String(candidateType || '').toLowerCase().trim();
-  if (type === 'image/jpg') type = 'image/jpeg';
+  if (type === 'image/jpg' || type === 'image/pjpeg') type = 'image/jpeg';
+  if (type === 'image/x-png') type = 'image/png';
+  if (type === 'image/x-ms-bmp') type = 'image/bmp';
   if (!type || type === 'application/octet-stream') {
     const ext = String(fileName || '').split('.').pop()?.toLowerCase() || '';
     if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
@@ -22,6 +27,9 @@ function normalizeMimeType(candidateType, fileName = '') {
     if (ext === 'webp') return 'image/webp';
     if (ext === 'heic') return 'image/heic';
     if (ext === 'heif') return 'image/heif';
+    if (ext === 'gif') return 'image/gif';
+    if (ext === 'bmp') return 'image/bmp';
+    if (ext === 'tif' || ext === 'tiff') return 'image/tiff';
     if (ext === 'pdf') return 'application/pdf';
   }
   return type;
@@ -42,6 +50,18 @@ function documentSignatureMatches(fileType, buffer) {
   }
   if (fileType === 'image/heic' || fileType === 'image/heif') {
     return ascii.slice(4, 8) === 'ftyp' && /heic|heix|hevc|hevx|mif1|msf1/.test(ascii.slice(8, 16));
+  }
+  if (fileType === 'image/gif') {
+    return ascii.startsWith('GIF87a') || ascii.startsWith('GIF89a');
+  }
+  if (fileType === 'image/bmp') {
+    return buffer[0] === 0x42 && buffer[1] === 0x4d; // 'BM'
+  }
+  if (fileType === 'image/tiff') {
+    return (
+      (buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) ||
+      (buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a)
+    );
   }
   if (fileType === 'application/pdf') {
     return ascii.startsWith('%PDF-');
@@ -64,6 +84,18 @@ function detectMimeType(buffer) {
   if (ascii.slice(4, 8) === 'ftyp' && /heic|heix|hevc|hevx|mif1|msf1/.test(ascii.slice(8, 16))) {
     return 'image/heic';
   }
+  if (ascii.startsWith('GIF87a') || ascii.startsWith('GIF89a')) {
+    return 'image/gif';
+  }
+  if (buffer[0] === 0x42 && buffer[1] === 0x4d) {
+    return 'image/bmp';
+  }
+  if (
+    (buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) ||
+    (buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a)
+  ) {
+    return 'image/tiff';
+  }
   if (ascii.startsWith('%PDF-')) {
     return 'application/pdf';
   }
@@ -83,7 +115,7 @@ function validateDocumentBuffer(fileType, buffer, maxBytes = MAX_DOCUMENT_BYTES)
   }
   let normalizedType = normalizeMimeType(fileType);
 
-  // If claimed type signature matches, great
+  // If claimed type signature matches, use it
   if (documentSignatureMatches(normalizedType, buffer)) {
     return normalizedType;
   }
@@ -94,7 +126,7 @@ function validateDocumentBuffer(fileType, buffer, maxBytes = MAX_DOCUMENT_BYTES)
     return detectedType;
   }
 
-  const error = new Error('The file content does not match any supported document type (JPG, PNG, WebP, HEIC, or PDF).');
+  const error = new Error('The file content does not match any supported document type (JPG, PNG, WebP, HEIC, GIF, BMP, TIFF, or PDF).');
   error.status = 400;
   throw error;
 }
