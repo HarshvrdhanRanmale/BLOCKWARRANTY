@@ -11,7 +11,10 @@ const transferRoutes = require('./routes/transferRoutes');
 const config = require('./config/env');
 
 const app = express();
-const appOrigins = [config.FRONTEND_URL, config.PUBLIC_DEMO_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'].filter(Boolean);
+const appOrigins = [config.FRONTEND_URL, config.PUBLIC_DEMO_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173']
+  .filter(Boolean)
+  .map((url) => url.replace(/\/+$/, ''));
+
 const isLocalDevOrigin = (origin) => (
   config.NODE_ENV !== 'production' && /^http:\/\/(?:localhost|127\.0\.0\.1):\d+$/i.test(origin || '')
 );
@@ -21,8 +24,21 @@ const isLocalDevOrigin = (origin) => (
 const isEmbeddedWalletOrigin = (origin) => (
   /^https:\/\/(?:[a-z0-9-]+\.)*(?:web3auth\.io|metamask\.io)$/i.test(origin || '')
 );
+const isVercelOrigin = (origin) => (
+  /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin || '')
+);
 const isQuickTunnelOrigin = (origin) => config.NODE_ENV !== 'production' && /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/i.test(origin || '');
-const isAllowedAppOrigin = (origin) => appOrigins.includes(origin) || isLocalDevOrigin(origin) || isEmbeddedWalletOrigin(origin) || isQuickTunnelOrigin(origin);
+const isAllowedAppOrigin = (origin) => {
+  if (!origin) return true;
+  const cleanOrigin = origin.replace(/\/+$/, '');
+  return (
+    appOrigins.some((allowed) => allowed.toLowerCase() === cleanOrigin.toLowerCase()) ||
+    isVercelOrigin(cleanOrigin) ||
+    isLocalDevOrigin(cleanOrigin) ||
+    isEmbeddedWalletOrigin(cleanOrigin) ||
+    isQuickTunnelOrigin(cleanOrigin)
+  );
+};
 
 // Security headers
 app.use(helmet());
@@ -38,6 +54,7 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization']
   })
 );
+app.options('*', cors());
 
 // Body parser
 app.use(express.json({ limit: '25mb' }));
