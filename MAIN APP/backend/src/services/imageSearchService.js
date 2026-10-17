@@ -1,25 +1,26 @@
-﻿/**
- * imageSearchService.js — Product Image Search
+/**
+ * imageSearchService.js — Electronics Product Image Search (India)
  *
- * PRIMARY: Google Custom Search Image API  (reliable from any server IP)
- *   — requires GOOGLE_API_KEY + GOOGLE_CSE_ID in .env (free 100 searches/day)
- *   — see README or setup guide for how to get free keys
+ * Engines (parallel):
+ *   1. Google Custom Search Image API (primary when GOOGLE_API_KEY + GOOGLE_CSE_ID are set)
+ *   2. Flipkart scraper (direct 832×832 product photos with exact model & color titles)
+ *   3. DuckDuckGo Image Search (Indian e-commerce & retail marketplace photos)
+ *   4. Google Images scraper (fallback CDN extractor)
  *
- * FALLBACK: Direct marketplace HTML scraping
- *   Amazon.in → Flipkart → Google Images (all attempted in parallel)
- *   Works locally; may be blocked on shared-IP deployments.
- *
- * NO Wikipedia. NO Bing. NO DuckDuckGo.
+ * NO Wikipedia. NO Fruit/Logo/Color palette leakage. NO Accessories/Cases.
  */
 'use strict';
 
-// ─── CDN / irrelevant patterns ────────────────────────────────────────────────
+// ─── CDN / irrelevant / accessory patterns ────────────────────────────────────
 
 const PRODUCT_CDN =
   /media-amazon\.com|rukminim\d*\.flixcart\.com|pisces\.bbystatic\.com|bbycastatic|media\.croma\.com|snapdeal\.com\/imagesSubDomain|assets\.myntassets|nykaa\.com\/media|tatacliq|jiomart\.com\/images|reliancedigital|vijaysales|samsung\.com\/image|cdn-apple\.com|store\.storeimages\.cdn-apple|assets\.sony|images\.dell|hp\.com\/content|asus\.com\/media|mi\.com\/assets|realme\.com\/assets|oneplus\.com\/img|gsmarena\.com\/pics|notebookcheck\.net\/fileadmin|cnet\.com\/api\/res|cdn\.mos\.cms\.futurecdn/i;
 
 const IRRELEVANT =
   /\b(ripe|fruit|botanical|flora|orchard|garden|food|juice|blossom|schematic|wiring|clipart|cartoon|plant|tree|leaf|animal|dog|cat|bird|insect|stock\s*photo|public\s*domain|free\s*photo|royalty.*free|illustration|wallpaper|color\s*palette|colour\s*palette|hex\s*code|paint\s*swatch|color\s*chart|colour\s*chart|logo|apple\s*store|apple\s*park|apple\s*campus)\b/i;
+
+const ACCESSORY =
+  /\b(case|cover|back\s*panel|back\s*glass|housing|lens\s*protector|screen\s*guard|tempered\s*glass|skin|sticker|pouch|sleeve|bumper|keychain|wristband|strap|charger\s*cable|cable|converter|dock)\b/i;
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -71,14 +72,13 @@ function tokenise(str = '') {
   return new Set(String(str).toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 1));
 }
 
-async function safeFetch(url, { timeout = 10000, extra = {} } = {}) {
+async function safeFetch(url, { timeout = 8000, extra = {} } = {}) {
   try {
     const res = await fetch(url, {
       headers: {
         'User-Agent': UA,
         Accept: 'text/html,application/xhtml+xml,*/*;q=0.8',
         'Accept-Language': 'en-IN,en-US;q=0.9,en;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
         'Cache-Control': 'no-cache',
         ...extra,
       },
@@ -90,23 +90,12 @@ async function safeFetch(url, { timeout = 10000, extra = {} } = {}) {
   }
 }
 
-// ─── Engine 1 (PRIMARY): Google Custom Search Image API ──────────────────────
-//
-// FREE setup (2 minutes):
-//   1. Go to https://programmablesearch.google.com/create
-//   2. Click "Add" → enter "www.amazon.in" → Create → Copy your Search Engine ID
-//   3. In the control panel → "Edit" → turn ON "Search the entire web"
-//   4. Go to https://console.cloud.google.com → APIs → Custom Search API → Enable
-//   5. Credentials → Create API Key → copy it
-//   6. Add to .env:
-//        GOOGLE_API_KEY=your_key_here
-//        GOOGLE_CSE_ID=your_cse_id_here
-//   Free quota: 100 searches/day (enough for dev & demo)
+// ─── Engine 1: Google Custom Search Image API ─────────────────────────────────
 
 async function queryGoogleCSE(query) {
   const apiKey = process.env.GOOGLE_API_KEY;
   const cseId  = process.env.GOOGLE_CSE_ID;
-  if (!apiKey || !cseId) return [];           // gracefully skip if not configured
+  if (!apiKey || !cseId) return [];
 
   try {
     const url =
@@ -119,11 +108,6 @@ async function queryGoogleCSE(query) {
     const res = await safeFetch(url, { timeout: 8000, extra: { Accept: 'application/json' } });
     if (!res) return [];
     const data = await res.json().catch(() => null);
-
-    if (data?.error) {
-      console.warn('[imageSearch] Google CSE error:', data.error.message);
-      return [];
-    }
     if (!Array.isArray(data?.items)) return [];
 
     return data.items.map(item => ({
@@ -135,80 +119,90 @@ async function queryGoogleCSE(query) {
       height:    item.image?.height        || 0,
       source:    'google_cse',
     }));
-  } catch (e) {
-    console.warn('[imageSearch] Google CSE failed:', e.message);
+  } catch {
     return [];
   }
 }
 
-// ─── Engine 2 (FALLBACK): Amazon.in scraper ──────────────────────────────────
-
-async function scrapeAmazon(query) {
-  try {
-    const res = await safeFetch(
-      `https://www.amazon.in/s?k=${encodeURIComponent(query)}&i=electronics`,
-      { timeout: 10000 }
-    );
-    if (!res) return [];
-    const html = await res.text();
-
-    const items = [];
-    const seen  = new Set();
-    const RE    = /data-a-dynamic-image="([^"]+)"/g;
-    let m;
-    while ((m = RE.exec(html)) !== null && items.length < 12) {
-      try {
-        const decoded  = m[1].replace(/&quot;/g, '"').replace(/&#34;/g, '"');
-        const imgMap   = JSON.parse(decoded);
-        const entries  = Object.entries(imgMap).sort((a, b) => (b[1][0] * b[1][1]) - (a[1][0] * a[1][1]));
-        if (!entries.length) continue;
-        const [imgUrl, [w, h]] = entries[0];
-        // Upgrade Amazon thumbnail to full-size
-        const full = imgUrl.replace(/\._[A-Z]+\d+_\./, '.');
-        if (!seen.has(full) && /^https?:\/\//i.test(full)) {
-          seen.add(full);
-          items.push({ title: query, image: full, thumbnail: full, url: 'https://www.amazon.in', width: w || 500, height: h || 500, source: 'amazon' });
-        }
-      } catch {}
-    }
-    return items;
-  } catch { return []; }
-}
-
-// ─── Engine 3 (FALLBACK): Flipkart scraper ───────────────────────────────────
+// ─── Engine 2: Flipkart Scraper (Direct 832×832 Photos) ───────────────────────
 
 async function scrapeFlipkart(query) {
   try {
     const res = await safeFetch(
       `https://www.flipkart.com/search?q=${encodeURIComponent(query)}&otracker=search&as=off`,
-      { timeout: 10000, extra: { Referer: 'https://www.flipkart.com/' } }
+      { timeout: 8000, extra: { Referer: 'https://www.flipkart.com/' } }
     );
     if (!res) return [];
     const html = await res.text();
 
     const items = [];
     const seen  = new Set();
-    const RE    = /"(https:\/\/rukminim\d*\.flixcart\.com\/image\/\d+\/\d+\/[^"]+\.(?:jpeg|jpg|png|webp))"/gi;
+    const re    = /<img[^>]+alt=["']([^"']+)["'][^>]+src=["'](https:\/\/rukminim\d*\.flixcart\.com\/image\/\d+\/\d+\/[^"']+)["']/gi;
     let m;
-    while ((m = RE.exec(html)) !== null && items.length < 12) {
-      // Upgrade to 832×832
-      const full = m[1].replace(/\/\d+\/\d+\//, '/832/832/');
-      if (!seen.has(full)) {
-        seen.add(full);
-        items.push({ title: query, image: full, thumbnail: full, url: 'https://www.flipkart.com', width: 832, height: 832, source: 'flipkart' });
+    while ((m = re.exec(html)) !== null && items.length < 15) {
+      const title   = m[1].trim();
+      const fullUrl = m[2].replace(/\/\d+\/\d+\//, '/832/832/').replace(/\?.*$/, '');
+      if (!seen.has(fullUrl)) {
+        seen.add(fullUrl);
+        items.push({
+          title,
+          image:     fullUrl,
+          thumbnail: fullUrl,
+          url:       'https://www.flipkart.com',
+          width:     832,
+          height:    832,
+          source:    'flipkart',
+        });
       }
     }
     return items;
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
-// ─── Engine 4 (FALLBACK): Google Images HTML scraper ─────────────────────────
+// ─── Engine 3: DuckDuckGo Marketplace Image API ───────────────────────────────
+
+async function scrapeDuckDuckGo(query) {
+  try {
+    const tokenRes = await safeFetch(
+      `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iar=images&iax=images&ia=images`,
+      { timeout: 6000 }
+    );
+    if (!tokenRes) return [];
+    const tokenText = await tokenRes.text();
+    const vqdMatch = tokenText.match(/vqd=["']?([^&"'\s]+)/);
+    if (!vqdMatch) return [];
+
+    const imgRes = await safeFetch(
+      `https://duckduckgo.com/i.js?l=in-en&o=json&q=${encodeURIComponent(query)}&vqd=${vqdMatch[1]}&f=,,,type:photo,&p=1`,
+      { timeout: 7000, extra: { Referer: 'https://duckduckgo.com/' } }
+    );
+    if (!imgRes) return [];
+    const data = await imgRes.json().catch(() => null);
+    if (!Array.isArray(data?.results)) return [];
+
+    return data.results.slice(0, 15).map(r => ({
+      title:     r.title || query,
+      image:     r.image,
+      thumbnail: r.thumbnail || r.image,
+      url:       r.url || '',
+      width:     r.width || 0,
+      height:    r.height || 0,
+      source:    'duckduckgo',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// ─── Engine 4: Google Images HTML Fallback ───────────────────────────────────
 
 async function scrapeGoogleImages(query) {
   try {
     const res = await safeFetch(
       `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=isch&safe=off&hl=en&num=20&gl=in`,
-      { timeout: 10000, extra: { Referer: 'https://www.google.com/', 'Sec-Fetch-Site': 'same-origin' } }
+      { timeout: 8000, extra: { Referer: 'https://www.google.com/' } }
     );
     if (!res) return [];
     const html = await res.text();
@@ -217,33 +211,33 @@ async function scrapeGoogleImages(query) {
     const seen  = new Set();
     let m;
 
-    // Full-resolution image URLs embedded in Google's JSON
     const RE = /\["(https?:\/\/(?!(?:encrypted-tbn|lh\d|gstatic))[^"\s\\]+\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)",\s*(\d+),\s*(\d+)/gi;
-    while ((m = RE.exec(html)) !== null && items.length < 20) {
+    while ((m = RE.exec(html)) !== null && items.length < 15) {
       const [, u, w, h] = m;
       if (!seen.has(u)) { seen.add(u); items.push({ title: query, image: u, thumbnail: u, url: '', width: +w, height: +h, source: 'google' }); }
     }
 
-    // Fallback: any product CDN URL found directly in the HTML
     if (items.length < 4) {
       const CDN_RE = /"(https:\/\/(?:media-amazon\.com|rukminim\d*\.flixcart\.com|media\.croma\.com|jiomart\.com\/images)[^"]+\.(?:jpg|jpeg|png|webp))"/gi;
-      while ((m = CDN_RE.exec(html)) !== null && items.length < 20) {
+      while ((m = CDN_RE.exec(html)) !== null && items.length < 15) {
         if (!seen.has(m[1])) { seen.add(m[1]); items.push({ title: query, image: m[1], thumbnail: m[1], url: '', width: 500, height: 500, source: 'google' }); }
       }
     }
     return items;
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 // ─── Ranker ───────────────────────────────────────────────────────────────────
 
-const SOURCE_PRIORITY = { google_cse: 90, amazon: 80, flipkart: 80, google: 30 };
+const SOURCE_PRIORITY = { google_cse: 95, flipkart: 90, duckduckgo: 80, google: 40 };
 
 function rankCandidates(rawResults, { cleanName, models, brand }) {
-  const qTokens    = tokenise(cleanName);
-  const bTokens    = tokenise(brand);
+  const qTokens     = tokenise(cleanName);
+  const bTokens     = tokenise(brand);
   const brandPhrase = brand.toLowerCase().trim();
-  const nbTokens   = [...qTokens].filter(
+  const nbTokens    = [...qTokens].filter(
     t => !bTokens.has(t) &&
          !/^(the|and|for|with|pro|max|plus|gb|tb|buy|india|official|product|image|online|best|price|new|get)$/.test(t)
   );
@@ -279,14 +273,14 @@ function rankCandidates(rawResults, { cleanName, models, brand }) {
     const isCDN = PRODUCT_CDN.test(imgUrl);
     if (isCDN) score += 70;
 
-    // ③ Brand phrase match (full phrase beats individual tokens)
+    // ③ Brand phrase match (full phrase beats individual words)
     if (brandPhrase && titleLow.includes(brandPhrase)) score += 40;
     else for (const b of bTokens) if (titleTokens.has(b)) score += 15;
 
     // ④ Model number: word-token in title OR substring in image URL
     for (const model of models) {
       const ml = model.toLowerCase();
-      if (titleTokens.has(ml))          { score += 60; modelMatched = true; }
+      if (titleTokens.has(ml))               { score += 60; modelMatched = true; }
       if (imgUrl.toLowerCase().includes(ml)) { score += 20; modelMatched = true; }
     }
 
@@ -302,16 +296,18 @@ function rankCandidates(rawResults, { cleanName, models, brand }) {
     // ⑥ Hard skip: no product-specific tokens match AND not a CDN image
     if (nbTokens.length >= 2 && nbCount === 0 && !isCDN && item.source !== 'google_cse') continue;
 
-    // ⑦ Irrelevant content penalty
+    // ⑦ Irrelevant content penalty (fruits, color charts, wallpaper)
     if (IRRELEVANT.test(titleLow)) score -= 150;
 
-    // ⑧ Commercial intent bonus
-    if (/\b(buy|shop|price|deal|review|spec|unbox|official|flipkart|amazon|croma|bestbuy|snapdeal|myntra|jiomart)\b/i.test(titleLow)) score += 15;
+    // ⑧ Accessory penalty (cases, screen guards, back panels) unless explicitly searched
+    if (ACCESSORY.test(titleLow) && !qTokens.has('case') && !qTokens.has('cover') && !qTokens.has('panel')) {
+      score -= 120;
+    }
 
     // ⑨ Aspect ratio (square = product photo)
     if (item.width && item.height) {
       const r = item.width / item.height;
-      if (r >= 0.6 && r <= 1.6)                score += 12;
+      if (r >= 0.6 && r <= 1.6)                    score += 12;
       if (item.width >= 300 && item.height >= 300) score += 10;
     }
 
@@ -321,17 +317,17 @@ function rankCandidates(rawResults, { cleanName, models, brand }) {
     try { domain = new URL(item.url || imgUrl).hostname.replace(/^www\./, ''); } catch {}
 
     scored.push({
-      title:        item.title || cleanName,
-      imageUrl:     imgUrl,
-      thumbnailUrl: item.thumbnail || imgUrl,
-      sourceUrl:    item.url || '',
+      title:         item.title || cleanName,
+      imageUrl:      imgUrl,
+      thumbnailUrl:  item.thumbnail || imgUrl,
+      sourceUrl:     item.url || '',
       domain,
-      sourceLabel:  item.source || domain || 'Web',
-      isMarketplace: isCDN || ['google_cse', 'amazon', 'flipkart'].includes(item.source),
+      sourceLabel:   item.source || domain || 'Web',
+      isMarketplace: isCDN || ['google_cse', 'flipkart', 'duckduckgo'].includes(item.source),
       modelMatched,
       score,
-      width:  item.width  || null,
-      height: item.height || null,
+      width:         item.width  || null,
+      height:        item.height || null,
     });
   }
 
@@ -345,22 +341,21 @@ async function searchProductImages({ productName = '', brand = '', category = ''
   const cleanName = cleanProductName(productName, brand, description);
   const models    = extractModelNumbers(productName);
   const baseQuery = toQuery(cleanName);
-  const shortQ    = baseQuery.split(' ').slice(0, 5).join(' ');
 
   const queries = [...new Set([
-    `${baseQuery} buy`,
-    models.length ? `${brand} ${models[0]} buy india`.trim() : null,
-    `${baseQuery} india online`,
-    category ? `${brand} ${category} buy india`.trim() : null,
+    baseQuery,
+    models.length ? `${brand} ${models[0]} buy`.trim() : null,
+    `${baseQuery} india`,
+    category ? `${brand} ${category} india`.trim() : null,
   ].filter(Boolean))];
 
   // All engines × all queries, fully parallel
   const tasks = [];
   for (const q of queries) {
-    tasks.push(queryGoogleCSE(q));        // PRIMARY (needs API key)
-    tasks.push(scrapeAmazon(q));          // Amazon.in
-    tasks.push(scrapeFlipkart(q));        // Flipkart
-    tasks.push(scrapeGoogleImages(q));    // Google Images HTML
+    tasks.push(queryGoogleCSE(q));      // Engine 1: Google CSE (if configured)
+    tasks.push(scrapeFlipkart(q));      // Engine 2: Flipkart (832x832 product photos)
+    tasks.push(scrapeDuckDuckGo(q));    // Engine 3: DuckDuckGo Marketplace
+    tasks.push(scrapeGoogleImages(q));  // Engine 4: Google Images
   }
 
   const settled    = await Promise.allSettled(tasks);
