@@ -1,4 +1,5 @@
 {
+  "outputDirectory": "dist-release",
   "rewrites": [
     {
       "source": "/(.*)",
