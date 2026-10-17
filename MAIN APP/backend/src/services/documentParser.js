@@ -49,6 +49,27 @@ function documentSignatureMatches(fileType, buffer) {
   return false;
 }
 
+function detectMimeType(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 4) return null;
+  const ascii = buffer.toString('ascii', 0, Math.min(buffer.length, 32));
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return 'image/png';
+  }
+  if (buffer.length >= 12 && ascii.slice(0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') {
+    return 'image/webp';
+  }
+  if (ascii.slice(4, 8) === 'ftyp' && /heic|heix|hevc|hevx|mif1|msf1/.test(ascii.slice(8, 16))) {
+    return 'image/heic';
+  }
+  if (ascii.startsWith('%PDF-')) {
+    return 'application/pdf';
+  }
+  return null;
+}
+
 function validateDocumentBuffer(fileType, buffer, maxBytes = MAX_DOCUMENT_BYTES) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
     const error = new Error('Empty or invalid file data received.');
@@ -60,18 +81,22 @@ function validateDocumentBuffer(fileType, buffer, maxBytes = MAX_DOCUMENT_BYTES)
     error.status = 413;
     throw error;
   }
-  const normalizedType = normalizeMimeType(fileType);
-  if (!Object.keys(SUPPORTED_DOCUMENT_TYPES).includes(normalizedType)) {
-    const error = new Error('Unsupported document format. Please upload JPG, PNG, WebP, HEIC, or PDF.');
-    error.status = 415;
-    throw error;
+  let normalizedType = normalizeMimeType(fileType);
+
+  // If claimed type signature matches, great
+  if (documentSignatureMatches(normalizedType, buffer)) {
+    return normalizedType;
   }
-  if (!documentSignatureMatches(normalizedType, buffer)) {
-    const error = new Error('The file content does not match its claimed document type (MIME signature verification failed).');
-    error.status = 400;
-    throw error;
+
+  // Otherwise, auto-detect actual file format from buffer magic bytes (e.g. WebP/PNG saved with .jpg extension)
+  const detectedType = detectMimeType(buffer);
+  if (detectedType && Object.keys(SUPPORTED_DOCUMENT_TYPES).includes(detectedType)) {
+    return detectedType;
   }
-  return normalizedType;
+
+  const error = new Error('The file content does not match any supported document type (JPG, PNG, WebP, HEIC, or PDF).');
+  error.status = 400;
+  throw error;
 }
 
 async function extractTextFromPdf(buffer) {
