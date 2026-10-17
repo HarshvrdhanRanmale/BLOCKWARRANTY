@@ -233,7 +233,7 @@ function RegisterProduct() {
       setCurrentStep(2);
 
       if (extracted.productName) {
-        void lookupProductImage(extracted.productName, extracted.brand || "", extracted.category || "");
+        void lookupProductImage(extracted.productName, extracted.brand || "", extracted.category || "", extracted.description || "");
       } else {
         setImageSearchStatus("Add a product name to search for an image.");
       }
@@ -283,7 +283,7 @@ function RegisterProduct() {
   // PRODUCT IMAGE
   // =========================================================
 
-  const lookupProductImage = async (productName, brand, category = "") => {
+  const lookupProductImage = async (productName, brand, category = "", description = "") => {
     const requestId = ++imageSearchId.current;
     setImageSearchStatus("Searching marketplaces for product photos...");
     setImageAttribution(null);
@@ -294,6 +294,7 @@ function RegisterProduct() {
         productName: productName || "",
         brand: brand || "",
         category: category || "",
+        description: description || formData.description || "",
       });
       const response = await fetch(
         `${API_BASE_URL}/api/product-image?${query.toString()}`

@@ -140,13 +140,14 @@ app.get('/api/product-image', async (req, res) => {
   const productName = String(req.query.productName || '').trim().slice(0, 200);
   const brand = String(req.query.brand || '').trim().slice(0, 100);
   const category = String(req.query.category || '').trim().slice(0, 50);
+  const description = String(req.query.description || '').trim().slice(0, 200);
 
   if (!productName) {
     return res.status(400).json({ message: 'Product name is required for image search.' });
   }
 
   try {
-    const result = await searchProductImages({ productName, brand, category });
+    const result = await searchProductImages({ productName, brand, category, description });
     return res.json(result);
   } catch (error) {
     console.error('Product image lookup failed:', error.message);
