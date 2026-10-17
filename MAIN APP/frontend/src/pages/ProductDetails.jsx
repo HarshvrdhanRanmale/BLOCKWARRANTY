@@ -34,10 +34,25 @@ function shortAddress(address = "") {
 }
 
 function publicBaseUrl() {
-  return String(
-    import.meta.env.VITE_PUBLIC_APP_URL ||
-    (typeof window !== "undefined" ? window.location.origin : "")
-  ).replace(/\/$/, "");
+  // If running in browser on a deployed domain (like Vercel or custom domain),
+  // always use the live domain dynamically:
+  if (
+    typeof window !== "undefined" &&
+    window.location.origin &&
+    !window.location.hostname.includes("localhost") &&
+    !window.location.hostname.includes("127.0.0.1")
+  ) {
+    return window.location.origin;
+  }
+
+  // If a production public app URL is configured (and not localhost):
+  const envUrl = String(import.meta.env.VITE_PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
+  if (envUrl && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
+    return envUrl;
+  }
+
+  // Fallback to current browser origin
+  return (typeof window !== "undefined" ? window.location.origin : envUrl || "").replace(/\/$/, "");
 }
 
 async function downloadInvoice(product, token) {
