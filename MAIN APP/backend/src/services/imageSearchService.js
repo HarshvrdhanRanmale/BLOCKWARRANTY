@@ -99,14 +99,45 @@ function cleanProductName(productName = '', brand = '') {
  * Extracts potential alphanumeric model codes (e.g., IC518QATX, WH-1000XM5, RTX4070, M3, SM-S928B)
  */
 function extractModelNumbers(text = '') {
-  const tokens = String(text).match(/\b[A-Za-z0-9\-]{3,20}\b/g) || [];
+  const tokens = String(text).match(/\b[A-Za-z0-9\-]{2,20}\b/g) || [];
   return tokens.filter((token) => {
+    // Keep model codes like S24, WH-1000XM5, RTX4070
     const hasDigit = /\d/.test(token);
     const hasAlpha = /[A-Za-z]/.test(token);
-    // Discard pure storage/unit tokens (e.g. 256gb, 16gb, 12v, 5star, 1.5ton)
     if (/^\d+(?:gb|tb|mb|g|kg|ton|star|w|v|mah|ah|hz|khz|mhz|cm|mm|in|inch)$/i.test(token)) return false;
-    return hasDigit && hasAlpha;
+    if (hasDigit && hasAlpha) return true;
+    // Also include numeric models if 2 digits or more (e.g., iPhone 13, 14, 15)
+    if (/^\d{2,4}$/.test(token)) return true;
+    return false;
   });
+}
+
+/**
+ * Engine 0: Wikipedia & Wikimedia Commons API (Fast, cloud-safe, exact product catalog photos)
+ */
+async function queryWikipediaImages(query) {
+  try {
+    const url = `https://en.wikipedia.org/w/api.php?action=query&format=json&prop=pageimages&generator=search&gsrsearch=${encodeURIComponent(query)}&pithumbsize=800&origin=*`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'BlockWarranty/1.0 (contact@blockwarranty.app)' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const pages = Object.values(data?.query?.pages || {});
+    return pages
+      .filter((p) => p.thumbnail?.source && !/logo|flag|icon|building|store/i.test(p.title))
+      .map((p) => ({
+        title: p.title,
+        image: p.thumbnail.source,
+        thumbnail: p.thumbnail.source,
+        url: `https://en.wikipedia.org/?curid=${p.pageid}`,
+        width: p.thumbnail.width || 800,
+        height: p.thumbnail.height || 800,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -207,6 +238,7 @@ async function queryDuckDuckGoImages(query) {
 function rankCandidates(rawResults, { query, models, brand }) {
   const queryTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
   const brandTokens = brand.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
+  const nonBrandTokens = queryTokens.filter((t) => !brandTokens.includes(t) && !/^(the|and|for|with|pro|max|plus)$/i.test(t));
 
   const scored = [];
   const seenImageKeys = new Set();
@@ -259,23 +291,30 @@ function rankCandidates(rawResults, { query, models, brand }) {
       }
     }
 
-    // 4. Overlapping query tokens (+5 each)
+    // 4. Overlapping query tokens (+10 each)
+    let nonBrandMatchedCount = 0;
     for (const token of queryTokens) {
       if (titleLower.includes(token)) {
-        score += 5;
+        score += 10;
+        if (nonBrandTokens.includes(token)) nonBrandMatchedCount++;
       }
     }
 
-    // 5. Product photography aspect ratio (0.75 - 1.35 is standard e-commerce square/portrait)
+    // 5. Heavy penalty if product has non-brand words (e.g. "iphone", "13") and NONE matched
+    if (nonBrandTokens.length > 0 && nonBrandMatchedCount === 0) {
+      score -= 80;
+    }
+
+    // 6. Strong negative penalty for botanical fruits, food, recipes, buildings, logos, error codes
+    if (/ripe|fruit|branch|eating|recipe|botanical|storefront|building|headquarters|exercise|sheet music|spiral bound|schematic|wiring|error code|diagram/i.test(titleLower)) {
+      score -= 100;
+    }
+
+    // 7. Product photography aspect ratio (0.75 - 1.35 is standard e-commerce square/portrait)
     if (item.width && item.height) {
       const ratio = item.width / item.height;
       if (ratio >= 0.70 && ratio <= 1.40) score += 12;
       if (item.width >= 350 && item.height >= 350) score += 10;
-    }
-
-    // 6. Strong negative penalty for manuals, circuit schematics, wiring, repairs, or error codes
-    if (/manual|schematic|wiring|error code|circuit diagram|troubleshooting|teardown|disassembly/i.test(titleLower)) {
-      score -= 75;
     }
 
     scored.push({
@@ -329,15 +368,21 @@ async function searchProductImages({ productName = '', brand = '', category = ''
 
   // Try queries in order until we collect enough good results
   for (const q of queryAttempts) {
-    if (rawResults.length >= 6) break;
+    if (rawResults.length >= 8) break;
 
-    // Run Bing search
+    // 1. Wikipedia & Wikimedia Commons (instant, cloud-safe, exact product catalog photos)
+    const wikiItems = await queryWikipediaImages(q);
+    if (wikiItems.length > 0) {
+      rawResults = [...rawResults, ...wikiItems];
+    }
+
+    // 2. Run Bing search
     const bingItems = await queryBingImages(q);
     if (bingItems.length > 0) {
       rawResults = [...rawResults, ...bingItems];
     }
 
-    // If still low, augment with DuckDuckGo
+    // 3. If still low, augment with DuckDuckGo
     if (rawResults.length < 4) {
       const ddgItems = await queryDuckDuckGoImages(q);
       if (ddgItems.length > 0) {
