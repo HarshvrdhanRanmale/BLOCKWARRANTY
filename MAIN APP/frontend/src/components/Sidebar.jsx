@@ -45,6 +45,12 @@ function Sidebar({
 
   const isExpanded = sidebarOpen;
 
+  const handleNavClick = () => {
+    if (window.innerWidth < 768 && onToggle) {
+      onToggle();
+    }
+  };
+
   return (
     <aside
       className={`
@@ -135,6 +141,7 @@ function Sidebar({
               <NavLink
                 key={item.name}
                 to={item.path}
+                onClick={handleNavClick}
                 className={({ isActive }) =>
                   `
                   group/item
@@ -232,6 +239,7 @@ function Sidebar({
           <button
             type="button"
             onClick={() => {
+              handleNavClick();
               logout();
               navigate("/");
             }}

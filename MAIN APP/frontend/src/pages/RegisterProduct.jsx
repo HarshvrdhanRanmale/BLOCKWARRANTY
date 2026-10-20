@@ -11,6 +11,7 @@ import {
   X,
   RefreshCw,
   ExternalLink,
+  Menu,
 } from "lucide-react";
 
 import { useEffect, useRef, useState } from "react";
@@ -550,177 +551,32 @@ function RegisterProduct() {
     // =========================================================
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A]">
-
-      {/* =====================================================
-          HEADER
-      ===================================================== */}
-
-      <header
-        className="
-          hidden
-          sticky
-          top-0
-          z-50
-          border-b
-          border-slate-200
-          bg-[#F8FAFC]/95
-          backdrop-blur-xl
-        "
-      >
+      {/* Mobile Backdrop */}
+      {sidebarOpen && (
         <div
-          className="
-            mx-auto
-            flex
-            h-[76px]
-            max-w-[1600px]
-            items-center
-            justify-between
-            px-5
-            sm:px-8
-            lg:px-10
-          "
-        >
+          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm transition-opacity md:hidden"
+          onClick={toggleSidebar}
+          aria-hidden="true"
+        />
+      )}
 
-          <Link
-            to="/"
-            className="flex items-center gap-3"
+      {/* Mobile Top App Bar */}
+      <header className="sticky top-0 z-30 flex h-14 w-full items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur-md md:hidden">
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            aria-label="Open menu"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 active:bg-slate-100"
           >
-            <div
-              className="
-                flex
-                h-11
-                w-11
-                items-center
-                justify-center
-                rounded-2xl
-                bg-[#2563EB]
-                shadow-[0_12px_28px_rgba(37,99,235,0.22)]
-              "
-            >
-              <ShieldCheck
-                size={24}
-                strokeWidth={2.3}
-                className="text-white"
-              />
-            </div>
-
-            <div>
-              <h1
-                className="
-                  text-lg
-                  font-extrabold
-                  tracking-tight
-                  text-[#0F172A]
-                  sm:text-xl
-                "
-              >
-                BlockWarranty
-              </h1>
-
-              <p
-                className="
-                  text-[8px]
-                  font-medium
-                  uppercase
-                  tracking-[0.25em]
-                  text-[#64748B]
-                "
-              >
-                Products. People. Protected.
-              </p>
-            </div>
-          </Link>
-
-          <nav className="hidden items-center gap-8 lg:flex">
-
-            <Link
-              to="/"
-              className="
-                text-sm
-                font-medium
-                text-[#64748B]
-                hover:text-[#2563EB]
-              "
-            >
-              Home
-            </Link>
-
-            <Link
-              to="/products"
-              className="
-                text-sm
-                font-medium
-                text-[#64748B]
-                hover:text-[#2563EB]
-              "
-            >
-              My Products
-            </Link>
-
-            <Link
-              to="/register-product"
-              className="
-                rounded-full
-                bg-[#E0EFFF]
-                px-5
-                py-2.5
-                text-sm
-                font-semibold
-                text-[#2563EB]
-              "
-            >
-              Register Product
-            </Link>
-
-            <Link
-              to="/products"
-              className="
-                text-sm
-                font-medium
-                text-[#64748B]
-                hover:text-[#2563EB]
-              "
-            >
-              View My Products
-            </Link>
-
-          </nav>
-
-          <div className="hidden items-center sm:flex">
-            <button
-              className="
-                flex
-                items-center
-                gap-3
-                rounded-full
-                border
-                border-slate-200
-                bg-white
-                px-4
-                py-2.5
-                shadow-sm
-              "
-            >
-              <span
-                className="
-                  h-2
-                  w-2
-                  rounded-full
-                  bg-[#16A34A]
-                "
-              />
-
-              <span className="text-xs font-semibold">
-                0x1234...ABCD
-              </span>
-
-              <ChevronDown
-                size={14}
-                className="text-[#64748B]"
-              />
-            </button>
-          </div>
-
+            <Menu size={18} />
+          </button>
+          <span className="flex items-center gap-2 font-bold text-slate-900">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white">
+              <ShieldCheck size={16} />
+            </span>
+            <span className="text-sm">BlockWarranty</span>
+          </span>
         </div>
       </header>
 
@@ -744,12 +600,14 @@ function RegisterProduct() {
           min-h-screen
           min-w-0
           transition-[margin]
-          duration-500
+          duration-300
+          ease-[cubic-bezier(0.22,1,0.36,1)]
           ${
             sidebarOpen
-              ? "ml-[280px]"
-              : "ml-[88px]"
+              ? "md:ml-[280px]"
+              : "md:ml-[88px]"
           }
+          ml-0
         `}
       >
 
@@ -757,8 +615,12 @@ function RegisterProduct() {
           className="
             mx-auto
             max-w-[1250px]
-            px-5
-            py-8
+            px-3.5
+            py-5
+            sm:px-6
+            sm:py-8
+            lg:px-10
+            lg:py-10
             sm:px-8
             lg:px-10
             lg:py-10
@@ -1630,92 +1492,73 @@ function StepIndicator({ currentStep }) {
   ];
 
   return (
-    <div
-      className="
-        overflow-x-auto
-        rounded-2xl
-        border
-        border-slate-200
-        bg-white
-        p-4
-      "
-    >
-      <div className="flex min-w-[500px] items-center">
+    <div className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4">
+      {/* Mobile view (< sm) */}
+      <div className="sm:hidden">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#2563EB] text-xs font-bold text-white">
+              {currentStep}
+            </span>
+            <span className="text-xs font-bold text-[#0F172A]">
+              Step {currentStep} of 3: <span className="font-semibold text-[#2563EB]">{steps[currentStep - 1]}</span>
+            </span>
+          </div>
+          <span className="text-[11px] font-semibold text-[#64748B]">
+            {Math.round((currentStep / 3) * 100)}%
+          </span>
+        </div>
+        <div className="mt-2.5 flex h-1.5 w-full gap-1.5">
+          {steps.map((_, idx) => (
+            <div
+              key={idx}
+              className={`h-full flex-1 rounded-full transition-all duration-300 ${
+                idx + 1 <= currentStep ? "bg-[#2563EB]" : "bg-slate-200"
+              }`}
+            />
+          ))}
+        </div>
+      </div>
 
+      {/* Tablet & Desktop view (>= sm) */}
+      <div className="hidden sm:flex items-center">
         {steps.map((step, index) => {
           const number = index + 1;
           const active = number === currentStep;
           const completed = number < currentStep;
 
           return (
-            <div
-              key={step}
-              className="flex flex-1 items-center"
-            >
-
-              <div className="flex items-center gap-3">
-
+            <div key={step} className="flex flex-1 items-center">
+              <div className="flex items-center gap-2.5 lg:gap-3">
                 <div
-                  className={`
-                    flex
-                    h-9
-                    w-9
-                    shrink-0
-                    items-center
-                    justify-center
-                    rounded-full
-                    text-xs
-                    font-bold
-                    ${
-                      active || completed
-                        ? "bg-[#2563EB] text-white"
-                        : "bg-[#F1F5F9] text-[#64748B]"
-                    }
-                  `}
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold lg:h-9 lg:w-9 ${
+                    active || completed
+                      ? "bg-[#2563EB] text-white"
+                      : "bg-[#F1F5F9] text-[#64748B]"
+                  }`}
                 >
-                  {completed ? (
-                    <CheckCircle2 size={17} />
-                  ) : (
-                    number
-                  )}
+                  {completed ? <CheckCircle2 size={16} /> : number}
                 </div>
 
                 <span
-                  className={`
-                    whitespace-nowrap
-                    text-xs
-                    font-semibold
-                    ${
-                      active
-                        ? "text-[#0F172A]"
-                        : "text-[#64748B]"
-                    }
-                  `}
+                  className={`whitespace-nowrap text-xs font-semibold ${
+                    active ? "text-[#0F172A]" : "text-[#64748B]"
+                  }`}
                 >
                   {step}
                 </span>
-
               </div>
 
               {index < steps.length - 1 && (
                 <div
-                  className={`
-                    mx-4
-                    h-px
-                    flex-1
-                    ${
-                      completed
-                        ? "bg-[#2563EB]"
-                        : "bg-slate-200"
-                    }
-                  `}
+                  className={`mx-3 h-px flex-1 lg:mx-4 ${
+                    completed ? "bg-[#2563EB]" : "bg-slate-200"
+                  }`}
                 />
               )}
-
             </div>
           );
         })}
-
       </div>
     </div>
   );

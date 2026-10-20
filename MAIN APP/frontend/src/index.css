@@ -18,6 +18,8 @@
 
 html {
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -25,10 +27,16 @@ body {
   font-family: Inter, "Segoe UI", sans-serif;
   background: var(--color-page-background);
   color: var(--color-primary-graphite);
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
 }
 
 * {
   box-sizing: border-box;
+}
+
+button, a {
+  touch-action: manipulation;
 }
 
 ::selection {

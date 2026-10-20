@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
@@ -10,6 +11,8 @@ import {
   ArrowUpRight,
   QrCode,
   Menu,
+  X,
+  Wallet,
 } from 'lucide-react'
 
 import laptop from '../assets/products/laptop.png'
@@ -19,6 +22,8 @@ import smartwatch from '../assets/products/smartwatch.png'
 
 
 function Landing() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#F5F1EC] text-[#171717]">
 
@@ -30,7 +35,7 @@ function Landing() {
 
         {/* LOGO */}
 
-        <div className="flex items-center gap-3">
+        <Link to="/" className="flex items-center gap-3">
 
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#8B1E3F] shadow-[0_12px_28px_rgba(139,30,63,0.22)] sm:h-11 sm:w-11">
             <ShieldCheck size={24} className="text-white" />
@@ -41,7 +46,7 @@ function Landing() {
             <p className="hidden text-[8px] uppercase tracking-[0.28em] text-[#6B7280] sm:block">Products. People. Protected.</p>
           </div>
 
-        </div>
+        </Link>
 
         {/* DESKTOP NAVIGATION */}
 
@@ -82,38 +87,100 @@ function Landing() {
 
         {/* RIGHT SIDE */}
 
-        <div className="flex items-center gap-3 sm:gap-5">
+        <div className="flex items-center gap-2.5 sm:gap-5">
 
-  <Search
-    size={21}
-    className="hidden sm:block"
-  />
+          <Search
+            size={21}
+            className="hidden sm:block text-slate-600"
+          />
 
-  <Link
-    to="/register"
-    className="hidden rounded-full bg-[#8B1E3F] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_28px_rgba(139,30,63,0.18)] transition hover:bg-[#171717] sm:block sm:px-6 lg:px-7"
-  >
-    Get Started
+          <Link
+            to="/register"
+            className="rounded-full bg-[#8B1E3F] px-4 py-2.5 text-xs font-semibold text-white shadow-[0_14px_28px_rgba(139,30,63,0.18)] transition hover:bg-[#171717] sm:px-6 sm:py-3 sm:text-sm lg:px-7"
+          >
+            Get Started
+            <ArrowRight
+              size={15}
+              className="ml-1.5 inline sm:size-[17px] sm:ml-2"
+            />
+          </Link>
 
-    <ArrowRight
-      size={17}
-      className="ml-2 inline"
-    />
-  </Link>
-
-
-
-          {/* Mobile menu */}
-
-          <button className="rounded-xl border border-[#E5E0DA] bg-white p-2.5 xl:hidden">
-
-            <Menu size={21} />
-
+          {/* Mobile menu button */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            aria-label="Toggle mobile menu"
+            aria-expanded={mobileMenuOpen}
+            className="rounded-xl border border-[#E5E0DA] bg-white p-2 text-slate-700 transition hover:bg-slate-50 xl:hidden active:bg-slate-100"
+          >
+            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
 
         </div>
 
       </nav>
+
+      {/* MOBILE MENU DROPDOWN */}
+      {mobileMenuOpen && (
+        <div className="relative z-50 border-b border-[#E5E0DA] bg-[#F5F1EC]/98 px-5 py-5 shadow-lg backdrop-blur-xl xl:hidden animate-in fade-in slide-in-from-top-3 duration-200">
+          <div className="flex flex-col gap-2">
+            <a
+              href="#"
+              onClick={() => setMobileMenuOpen(false)}
+              className="rounded-xl bg-[#F3DDE4] px-4 py-3 text-sm font-bold text-[#8B1E3F]"
+            >
+              Home
+            </a>
+            <a
+              href="#features"
+              onClick={() => setMobileMenuOpen(false)}
+              className="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-200/50"
+            >
+              Features
+            </a>
+            <a
+              href="#manufacturers"
+              onClick={() => setMobileMenuOpen(false)}
+              className="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-200/50"
+            >
+              For Manufacturers
+            </a>
+            <a
+              href="#owners"
+              onClick={() => setMobileMenuOpen(false)}
+              className="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-200/50"
+            >
+              For Owners
+            </a>
+            <a
+              href="#about"
+              onClick={() => setMobileMenuOpen(false)}
+              className="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-200/50"
+            >
+              About
+            </a>
+
+            <div className="mt-3 flex flex-col gap-2 border-t border-[#E5E0DA] pt-4">
+              <Link
+                to="/register"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center justify-center gap-2 rounded-xl bg-[#8B1E3F] px-5 py-3 text-sm font-bold text-white shadow-md shadow-[#8B1E3F]/20"
+              >
+                <span>Get Started</span>
+                <ArrowRight size={16} />
+              </Link>
+              <Link
+                to="/connect-wallet"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 shadow-sm"
+              >
+                <Wallet size={16} />
+                <span>Connect MetaMask</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
 
       {/* =====================================================
@@ -646,7 +713,8 @@ function Landing() {
   className="
     label-float
     absolute
-    right-[-7%]
+    right-[1%]
+    sm:right-[-7%]
     top-[5%]
     z-40
     rounded-[20px]
@@ -708,7 +776,8 @@ function Landing() {
     label-float
     absolute
     bottom-[35%]
-    right-[-4%]
+    right-[2%]
+    sm:right-[-4%]
     z-40
     rounded-[20px]
     border
