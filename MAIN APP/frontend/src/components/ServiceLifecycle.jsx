@@ -16,6 +16,34 @@ const SERVICE_FIELDS = [
   ['serviceType', 'Service type'], ['issueReported', 'Issue reported'], ['diagnosis', 'Diagnosis'], ['workPerformed', 'Work performed'],
   ['warrantyCovered', 'Warranty covered', 'checkbox']
 ];
+function isWarrantyExpired(product) {
+  if (!product) return false;
+  if (product.status === 'Expired') return true;
+
+  if (product.warrantyExpiry) {
+    const expirySec = Number(product.warrantyExpiry);
+    if (Number.isFinite(expirySec) && expirySec > 0) {
+      return expirySec * 1000 < Date.now();
+    }
+  }
+
+  if (!product.purchaseDate) return false;
+  const purchaseDate = new Date(product.purchaseDate);
+  const warrantyPeriod = Number(product.warrantyPeriod);
+  if (!Number.isFinite(purchaseDate.getTime()) || !Number.isFinite(warrantyPeriod) || warrantyPeriod <= 0) {
+    return false;
+  }
+
+  const unitSeconds = {
+    Days: 86400,
+    Months: 30 * 86400,
+    Years: 365 * 86400,
+  }[product.warrantyUnit || 'Years'] || 365 * 86400;
+
+  const expiryTime = purchaseDate.getTime() + warrantyPeriod * unitSeconds * 1000;
+  return expiryTime < Date.now();
+}
+
 export default function ServiceLifecycle({ product, token, walletAddress }) {
   const [history, setHistory] = useState({ services: [], warrantyClaims: [] });
   const [kind, setKind] = useState('');
@@ -42,6 +70,38 @@ export default function ServiceLifecycle({ product, token, walletAddress }) {
     return () => { active = false; };
   }, [product.productId, token, refresh]);
 
+  const extract = async (overrideData = null, overrideType = null, overrideFile = null) => {
+    let data = overrideData || fileData;
+    const activeFile = overrideFile || file;
+    const activeType = overrideType || fileType;
+    if (!data && activeFile) {
+      try {
+        data = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result).split(',')[1] || '');
+          r.onerror = () => reject(new Error('Could not read this file. Please choose it again.'));
+          r.readAsDataURL(activeFile);
+        });
+        setFileData(data);
+      } catch (err) {
+        return setError(err.message);
+      }
+    }
+    if (!data || !activeFile) return setError('Upload a service bill first.');
+    setExtracting(true); setError(''); setNotice('');
+    try {
+      const response = await fetch(`${API_BASE}/api/products/${encodeURIComponent(product.productId)}/services/extract`, {
+        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileData: data, fileType: activeType, fileName: activeFile.name })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || result.error || 'Extraction failed. You can still fill the form manually.');
+      setExtracted(result.extractedData || {}); setValues((v) => ({ ...v, ...(result.extractedData || {}) }));
+      setNotice('Review and correct all values. AI extraction is only a draft.');
+    } catch (e) { setError(e.message); }
+    finally { setExtracting(false); }
+  };
+
   const selectFile = (selected, previewUrl) => {
     setError(''); setNotice(''); setFile(selected || null); setFileData(''); setExtracted({}); setValues({});
     if (!selected) { setFileData(''); setFileType(''); setPreview(''); return; }
@@ -54,39 +114,14 @@ export default function ServiceLifecycle({ product, token, walletAddress }) {
     setFileType(normalizedType);
     setPreview(previewUrl || (selected instanceof Blob ? URL.createObjectURL(selected) : ''));
     const reader = new FileReader();
-    reader.onload = () => setFileData(String(reader.result).split(',')[1] || '');
+    reader.onload = () => {
+      const b64 = String(reader.result).split(',')[1] || '';
+      setFileData(b64);
+      // Auto-extract immediately upon selecting the file
+      extract(b64, normalizedType, selected);
+    };
     reader.onerror = () => setError('Could not read this file. Please choose it again.');
     reader.readAsDataURL(selected);
-  };
-
-  const extract = async () => {
-    let data = fileData;
-    if (!data && file) {
-      try {
-        data = await new Promise((resolve, reject) => {
-          const r = new FileReader();
-          r.onload = () => resolve(String(r.result).split(',')[1] || '');
-          r.onerror = () => reject(new Error('Could not read this file. Please choose it again.'));
-          r.readAsDataURL(file);
-        });
-        setFileData(data);
-      } catch (err) {
-        return setError(err.message);
-      }
-    }
-    if (!data || !file) return setError('Upload a service bill first.');
-    setExtracting(true); setError(''); setNotice('');
-    try {
-      const response = await fetch(`${API_BASE}/api/products/${encodeURIComponent(product.productId)}/services/extract`, {
-        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData: data, fileType, fileName: file.name })
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || result.error || 'Extraction failed. You can still fill the form manually.');
-      setExtracted(result.extractedData || {}); setValues((v) => ({ ...v, ...(result.extractedData || {}) }));
-      setNotice('Review and correct all values. AI extraction is only a draft.');
-    } catch (e) { setError(e.message); }
-    finally { setExtracting(false); }
   };
 
   const saveDraft = async (event) => {
@@ -139,9 +174,11 @@ export default function ServiceLifecycle({ product, token, walletAddress }) {
     ...history.warrantyClaims.map((item) => ({ ...item, key: item.warrantyClaimId, kind: 'Warranty claim', date: item.claimDate, details: item.issue || item.claimDescription, amount: item.customerCost, status: item.blockchainStatus }))
   ].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
 
+  const warrantyExpired = isWarrantyExpired(product);
+
   return <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.035)] sm:p-6">
     <header className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Wrench size={17} /></span><div><h2 className="text-sm font-bold text-slate-900">Service & warranty history</h2><p className="text-xs text-slate-500">Service documents stay private. Confirmed lifecycle entries are recorded on-chain.</p></div></div><div className="flex gap-2"><button type="button" onClick={() => { setKind('service'); setError(''); setNotice(''); }} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white"><Plus size={14} /> Add service</button></div></header>
-    {entries.length ? <div className="space-y-3">{entries.map((item) => <article key={item.key} className="rounded-2xl bg-slate-50 p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-bold text-slate-900">{item.kind}{item.details ? ` · ${item.details}` : ''}</p><p className="mt-1 text-xs text-slate-500">{item.serviceCenterName || 'Service center not provided'} · {formatDate(item.date || item.createdAt)}</p></div><span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800">{item.status === 'confirmed' ? 'Blockchain confirmed' : 'Draft · not on-chain'}</span></div>{item.partsReplaced?.length > 0 && <p className="mt-2 text-xs text-slate-600">Parts: {item.partsReplaced.map((part) => `${part.name}${part.quantity > 1 ? ` ×${part.quantity}` : ''}`).join(', ')}</p>}{item.amount != null && <p className="mt-2 text-xs font-semibold text-slate-700">{item.currency} {item.amount}</p>}<div className="mt-2 flex flex-wrap items-center gap-3"><span className="text-[10px] text-slate-500">Document hash: {item.documentHash ? `${item.documentHash.slice(0, 12)}…` : 'Not available'}</span>{item.documentId && <button type="button" onClick={() => download(item.key)} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700"><FileText size={13} /> Private bill</button>}</div></article>)}</div> : <p className="rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">No service or warranty claims have been added.</p>}
+    {entries.length ? <div className="space-y-3">{entries.map((item) => <article key={item.key} className="rounded-2xl bg-slate-50 p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-bold text-slate-900">{item.kind}{item.details ? ` · ${item.details}` : ''}</p><p className="mt-1 text-xs text-slate-500">{item.serviceCenterName || 'Service center not provided'} · {formatDate(item.date || item.createdAt)}</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${item.status === 'confirmed' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{item.status === 'confirmed' ? 'Blockchain confirmed' : 'Draft · not on-chain'}</span></div>{item.partsReplaced?.length > 0 && <p className="mt-2 text-xs text-slate-600">Parts: {item.partsReplaced.map((part) => `${part.name}${part.quantity > 1 ? ` ×${part.quantity}` : ''}`).join(', ')}</p>}{item.amount != null && <p className="mt-2 text-xs font-semibold text-slate-700">{item.currency} {item.amount}</p>}<div className="mt-2 flex flex-wrap items-center gap-3"><span className="text-[10px] text-slate-500">Document hash: {item.documentHash ? `${item.documentHash.slice(0, 12)}…` : 'Not available'}</span>{item.documentId && <button type="button" onClick={() => download(item.key)} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700"><FileText size={13} /> Private bill</button>}</div></article>)}</div> : <p className="rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">No service or warranty claims have been added.</p>}
     {notice && !kind && <p role="status" className="mt-3 text-xs text-blue-700">{notice}</p>}{error && !kind && <p role="alert" className="mt-3 text-xs text-red-600">{error}</p>}
     {kind && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true" aria-label="Add service record">
       <form onSubmit={saveDraft} className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl">
@@ -162,20 +199,22 @@ export default function ServiceLifecycle({ product, token, walletAddress }) {
               onRemove={() => selectFile(null)}
               onExtract={extract}
               extracting={extracting}
-              extractionError=""
+              extractionError={error}
               extractionSuccess={Boolean(Object.keys(extracted).length)}
               label="Attach service bill or repair receipt"
               description="Drop, browse, or paste (Ctrl+V) an invoice, receipt, or service report (JPG, PNG, WebP, HEIC, PDF up to 15 MB). Document remains strictly private."
               maxSizeMB={15}
               isService={true}
-              showExtractButton={Boolean(file)}
+              showExtractButton={false}
             />
           </section>
 
           <section>
             <div className="mb-3"><h4 className="text-sm font-bold text-slate-900">Visit details</h4><p className="mt-0.5 text-xs text-slate-500">Add the information you have. You can leave other fields blank.</p></div>
             <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
-              {SERVICE_FIELDS.map(([field, label, inputType]) => {
+              {SERVICE_FIELDS
+                .filter(([field]) => !(field === 'warrantyCovered' && warrantyExpired))
+                .map(([field, label, inputType]) => {
                 const isWide = ['issueReported', 'diagnosis', 'workPerformed', 'claimDescription', 'resolution'].includes(field);
                 if (inputType === 'checkbox') return <label key={field} className="flex min-h-12 cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3.5 text-sm font-semibold text-slate-700"><span>{label}</span><input type="checkbox" checked={values[field] === true || ['true', 'yes'].includes(String(values[field]).toLowerCase())} onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.checked }))} className="h-4 w-4 rounded accent-blue-700" /></label>;
                 return <label key={field} className={`block text-xs font-semibold text-slate-700 ${isWide ? 'sm:col-span-2' : ''}`}>{label}{['issueReported', 'diagnosis', 'workPerformed', 'claimDescription', 'resolution'].includes(field) ? <textarea value={values[field] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))} rows={field === 'workPerformed' || field === 'claimDescription' ? 3 : 2} className="mt-1.5 block w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm font-normal outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-50" /> : inputType === 'select' ? <select value={values[field] || 'submitted'} onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))} className="mt-1.5 block h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-normal outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50">{['submitted', 'under_review', 'approved', 'rejected', 'in_service', 'resolved', 'cancelled'].map((status) => <option key={status} value={status}>{status.replace('_', ' ')}</option>)}</select> : <input type={inputType || 'text'} value={values[field] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [field]: e.target.value }))} className="mt-1.5 block h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-normal outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-50" />}</label>;

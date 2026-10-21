@@ -95,10 +95,10 @@ export default function Authenticate() {
           theme: "outline",
           size: "large",
           type: "standard",
-          shape: "rectangular",
-          text: "continue_with",
+          shape: "pill",
+          text: "signin_with",
           logo_alignment: "left",
-          width: Math.min(340, googleButtonRef.current.clientWidth || 340),
+          width: Math.min(360, googleButtonRef.current.clientWidth || 360),
         });
       })
       .catch((err) => {
@@ -156,23 +156,37 @@ export default function Authenticate() {
         <div className="space-y-5">
           <WalletAddress address={walletAddress} compact />
 
-          <section className="relative overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-6 text-center">
-            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-blue-700 shadow-sm ring-1 ring-blue-100">
-              <LockKeyhole size={22} />
-            </span>
-            <h3 className="mt-4 text-base font-extrabold text-slate-900">One secure step left</h3>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-600">
-              Connect a verified Google account to add your profile name and email. No profile details are entered manually.
-            </p>
-            {googleClientId ? (
-              <div className="mt-5 flex min-h-11 justify-center" aria-label="Continue with Google">
-                <div ref={googleButtonRef} />
+          <section className="relative overflow-hidden rounded-3xl border border-slate-200/90 bg-white text-center shadow-sm transition-all duration-200 hover:border-slate-300 hover:shadow-md">
+            <div className="px-6 py-7">
+              {/* Icon with theme color */}
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-sm">
+                <LockKeyhole size={24} strokeWidth={2} />
               </div>
-            ) : (
-              <p className="mt-4 rounded-xl bg-amber-50 px-3 py-2 text-left text-xs leading-5 text-amber-900">
-                Google sign-in is not configured. Set the Google client ID in the frontend and backend environment, then restart both servers.
+
+              <h3 className="mt-5 text-base font-extrabold text-slate-900">One secure step left</h3>
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500">
+                Connect a verified Google account to add your profile name and email. No profile details are entered manually.
               </p>
-            )}
+
+              {googleClientId ? (
+                <div className="mt-6">
+                  {/* Divider */}
+                  <div className="mb-5 flex items-center gap-3">
+                    <div className="h-px flex-1 bg-slate-100" />
+                    <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">sign in with</span>
+                    <div className="h-px flex-1 bg-slate-100" />
+                  </div>
+                  {/* Pill button */}
+                  <div className="flex justify-center">
+                    <div ref={googleButtonRef} />
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 rounded-xl bg-amber-50 px-3 py-2 text-left text-xs leading-5 text-amber-900">
+                  Google sign-in is not configured. Set the Google client ID in the frontend and backend environment, then restart both servers.
+                </p>
+              )}
+            </div>
           </section>
 
           {error && (
@@ -182,7 +196,7 @@ export default function Authenticate() {
           )}
 
           {savingProfile && (
-            <p className="flex items-center justify-center gap-2 text-sm font-semibold text-blue-700" role="status">
+            <p className="flex items-center justify-center gap-2 text-sm font-semibold text-[#2563EB]" role="status">
               <LoaderCircle size={17} className="animate-spin" /> Verifying Google account...
             </p>
           )}
@@ -238,11 +252,10 @@ export default function Authenticate() {
               aria-live="polite"
             >
               <p
-                className={`flex items-center gap-2 text-sm ${
-                  authenticationStatus === "signing"
-                    ? "font-bold text-[#2563EB]"
-                    : "text-[#64748B]"
-                }`}
+                className={`flex items-center gap-2 text-sm ${authenticationStatus === "signing"
+                  ? "font-bold text-[#2563EB]"
+                  : "text-[#64748B]"
+                  }`}
               >
                 {authenticationStatus === "signing" ? (
                   <LoaderCircle size={17} className="animate-spin" />
@@ -254,11 +267,10 @@ export default function Authenticate() {
                   : "Wallet signature received"}
               </p>
               <p
-                className={`flex items-center gap-2 text-sm ${
-                  authenticationStatus === "verifying"
-                    ? "font-bold text-[#2563EB]"
-                    : "text-[#64748B]"
-                }`}
+                className={`flex items-center gap-2 text-sm ${authenticationStatus === "verifying"
+                  ? "font-bold text-[#2563EB]"
+                  : "text-[#64748B]"
+                  }`}
               >
                 {authenticationStatus === "verifying" ? (
                   <LoaderCircle size={17} className="animate-spin" />
