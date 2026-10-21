@@ -1,6 +1,7 @@
 import { Menu, ShieldCheck } from "lucide-react";
 import Sidebar from "./Sidebar";
 import { useSidebarPreference } from "./useSidebarPreference";
+import IncomingTransferNotification from "./IncomingTransferNotification";
 
 function WorkspaceLayout({ children }) {
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebarPreference();
@@ -52,6 +53,8 @@ function WorkspaceLayout({ children }) {
           {children}
         </div>
       </main>
+
+      <IncomingTransferNotification />
     </div>
   );
 }

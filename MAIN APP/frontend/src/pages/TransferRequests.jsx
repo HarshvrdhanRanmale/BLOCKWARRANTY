@@ -143,6 +143,23 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
     };
   }, [fetchTransfers, selected?.id, token, walletAddress]);
 
+  const requestedTransferId = searchParams.get('transferId');
+
+  function closeDetails() {
+    setSelected(null);
+    setConfirmingAccept(false);
+    if (searchParams.has('transferId')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('transferId');
+      setSearchParams(next, { replace: true });
+    }
+  }
+
+  useEffect(() => {
+    if (!requestedTransferId || !walletAddress || !token) return;
+    openDetails({ id: requestedTransferId });
+  }, [requestedTransferId, walletAddress, token]);
+
   async function connectAndAuthenticate() {
     setError('');
     try {
@@ -334,10 +351,10 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
         </section>
       </>}
 
-      {(loadingDetails && walletAddress && token || selectedAuthorized) && <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) { setSelected(null); setConfirmingAccept(false); } }}>
+      {(loadingDetails && walletAddress && token || selectedAuthorized) && <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) closeDetails(); }}>
         <section role="dialog" aria-modal="true" aria-labelledby="transfer-details-title" className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-white shadow-2xl">
           {loadingDetails ? <div className="flex items-center justify-center gap-2 p-12 text-sm text-slate-500"><LoaderCircle className="animate-spin" size={17} /> Loading authorized details…</div> : selectedAuthorized && <>
-            <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">Transfer details</p><h2 id="transfer-details-title" className="mt-1 text-lg font-extrabold text-slate-900">{selected.product?.productName || 'Product'}</h2><p className="mt-1 text-xs text-slate-500">{selected.product?.productId}</p></div><button type="button" aria-label="Close" disabled={busy} onClick={() => { setSelected(null); setConfirmingAccept(false); }} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"><X size={18} /></button></header>
+            <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">Transfer details</p><h2 id="transfer-details-title" className="mt-1 text-lg font-extrabold text-slate-900">{selected.product?.productName || 'Product'}</h2><p className="mt-1 text-xs text-slate-500">{selected.product?.productId}</p></div><button type="button" aria-label="Close" disabled={busy} onClick={closeDetails} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"><X size={18} /></button></header>
             <div className="space-y-5 px-5 py-5">
               {selected.product?.productImage && <img src={selected.product.productImage} alt={selected.product.productName} className="max-h-52 w-full rounded-lg bg-slate-50 object-contain" />}
               <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
@@ -352,7 +369,7 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
                 <Info label="Request date" value={dateLabel(selected.createdAt)} />
               </div>
               <div className="flex flex-wrap items-center gap-3 border-y border-slate-200 py-3 text-sm text-slate-700"><FileText size={16} className="text-blue-700" />{selected.product?.hasInvoice ? 'Existing invoice attached to Product Passport' : 'No invoice document attached'}{selected.product?.hasInvoice && <button type="button" disabled={busy} onClick={() => downloadPassportInvoice(selected.product, token).catch((downloadError) => setError(downloadError.message))} className="ml-auto text-xs font-bold text-blue-700 hover:text-blue-900">View document</button>}</div>
-              {selected.product?.publicId && <Link to={passportPath(selected.product)} onClick={() => setSelected(null)} className="inline-flex items-center gap-2 text-sm font-bold text-blue-700 hover:text-blue-900">Open existing Product Passport <ArrowRight size={15} /></Link>}
+              {selected.product?.publicId && <Link to={passportPath(selected.product)} onClick={closeDetails} className="inline-flex items-center gap-2 text-sm font-bold text-blue-700 hover:text-blue-900">Open existing Product Passport <ArrowRight size={15} /></Link>}
               {selected.transactionHash && <p className="break-all text-xs text-slate-500">Transaction: <a className="font-mono text-blue-700 hover:underline" target="_blank" rel="noreferrer" href={transactionUrl(selected.transactionHash)}>{selected.transactionHash}</a></p>}
 
               <TransferStatusBanner
@@ -366,7 +383,7 @@ export default function TransferRequests({ embedded = false, pendingCounts = { s
               />
 
               {confirmingAccept && <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><h3 className="text-sm font-bold text-slate-900">Confirm acceptance</h3><p className="mt-1 text-xs leading-5 text-slate-700">Accept the request for {selected.product?.productName} at {selected.currency} {Number(selected.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}? This records your response only; it does not transfer the product or collect payment.</p><div className="mt-3 flex gap-2"><button type="button" disabled={busy} onClick={() => setConfirmingAccept(false)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700">Back</button><button type="button" disabled={busy} onClick={() => updateRequest('accept')} className="h-9 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white">{busy ? 'Saving…' : 'Confirm Accept'}</button></div></div>}
-              {!confirmingAccept && (selected.status === 'completed' || selected.ownershipTransferStatus === 'confirmed') && <button type="button" onClick={() => { setSelected(null); setConfirmingAccept(false); setError(''); setNotice(''); }} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700"><Check size={16} /> Done</button>}
+              {!confirmingAccept && (selected.status === 'completed' || selected.ownershipTransferStatus === 'confirmed') && <button type="button" onClick={() => { closeDetails(); setError(''); setNotice(''); }} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700"><Check size={16} /> Done</button>}
               {!confirmingAccept && selected.status !== 'completed' && selected.ownershipTransferStatus !== 'confirmed' && <div className="flex flex-wrap gap-2 pt-1">
                 {!isSeller && selected.status === 'pending' && <><button type="button" disabled={busy} onClick={() => setConfirmingAccept(true)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700"><Check size={16} /> Accept Transfer</button><button type="button" disabled={busy} onClick={() => updateRequest('reject')} className="inline-flex h-10 items-center gap-2 rounded-lg border border-rose-200 bg-white px-4 text-sm font-bold text-rose-700 hover:bg-rose-50"><X size={16} /> Reject</button></>}
                 {isSeller && selected.status === 'pending' && <button type="button" disabled={busy} onClick={() => updateRequest('cancel')} className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel request</button>}
