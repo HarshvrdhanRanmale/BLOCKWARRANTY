@@ -34,8 +34,19 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['user', 'admin'],
+      enum: ['user', 'admin', 'supplier'],
       default: 'user'
+    },
+    supplierProfile: {
+      companyName: { type: String, default: '', trim: true },
+      brandName: { type: String, default: '', trim: true },
+      taxId: { type: String, default: '', trim: true },
+      businessEmail: { type: String, default: '', lowercase: true, trim: true },
+      website: { type: String, default: '', trim: true },
+      phone: { type: String, default: '', trim: true },
+      registeredAddress: { type: String, default: '', trim: true },
+      authorizedBrands: [{ type: String, trim: true }],
+      isVerified: { type: Boolean, default: true }
     },
     profileComplete: {
       type: Boolean,

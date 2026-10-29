@@ -7,10 +7,18 @@ import {
   ShieldCheck,
   LogOut,
   X,
+  LayoutDashboard,
+  Boxes,
+  FileCheck,
+  ClipboardList,
+  Building2,
+  Store,
 } from "lucide-react";
 
+import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuthFlow } from "../auth/useAuthFlow";
+import { useWallet } from "../blockchain/useWallet";
 
 function Sidebar({
   sidebarOpen,
@@ -20,7 +28,12 @@ function Sidebar({
 }) {
   const navigate = useNavigate();
   const { logout } = useAuthFlow();
-  const menuItems = [
+  const { user } = useWallet();
+  const [isHovered, setIsHovered] = useState(false);
+
+  const isSupplier = user?.role === "supplier";
+
+  const customerMenuItems = [
     {
       name: "My Products",
       icon: Package,
@@ -43,7 +56,37 @@ function Sidebar({
     },
   ];
 
-  const isExpanded = sidebarOpen;
+  const supplierMenuItems = [
+    {
+      name: "Supplier Dashboard",
+      icon: LayoutDashboard,
+      path: "/supplier/dashboard",
+    },
+    {
+      name: "Inventory Management",
+      icon: Boxes,
+      path: "/supplier/inventory",
+    },
+    {
+      name: "Invoice Verifications",
+      icon: FileCheck,
+      path: "/supplier/invoices",
+    },
+    {
+      name: "Warranty Claims",
+      icon: ClipboardList,
+      path: "/supplier/claims",
+    },
+    {
+      name: "Company Profile",
+      icon: Building2,
+      path: "/profile",
+    },
+  ];
+
+  const menuItems = isSupplier ? supplierMenuItems : customerMenuItems;
+
+  const isExpanded = sidebarOpen || isHovered;
 
   const handleNavClick = () => {
     if (window.innerWidth < 768 && onToggle) {
@@ -53,6 +96,8 @@ function Sidebar({
 
   return (
     <aside
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       className={`
         group/sidebar
         fixed
@@ -71,7 +116,7 @@ function Sidebar({
         ease-[cubic-bezier(0.22,1,0.36,1)]
         ${
           isExpanded
-            ? "translate-x-0 w-[280px]"
+            ? "translate-x-0 w-[280px] shadow-2xl"
             : "-translate-x-full md:translate-x-0 md:w-[88px] w-[280px]"
         }
       `}
@@ -141,6 +186,7 @@ function Sidebar({
               <NavLink
                 key={item.name}
                 to={item.path}
+                title={item.name}
                 onClick={handleNavClick}
                 className={({ isActive }) =>
                   `
@@ -238,6 +284,7 @@ function Sidebar({
 
           <button
             type="button"
+            title="Logout"
             onClick={() => {
               handleNavClick();
               logout();

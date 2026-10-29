@@ -10,6 +10,11 @@ import MyProducts from "./pages/MyProducts";
 import ProductDetails from "./pages/ProductDetails";
 import PublicPassport from "./pages/PublicPassport";
 import TransferOwnership from "./pages/TransferOwnership";
+import SupplierRegister from "./pages/supplier/SupplierRegister";
+import SupplierDashboard from "./pages/supplier/SupplierDashboard";
+import SupplierInventory from "./pages/supplier/SupplierInventory";
+import SupplierInvoices from "./pages/supplier/SupplierInvoices";
+import SupplierClaims from "./pages/supplier/SupplierClaims";
 import { WalletProvider } from "./blockchain/WalletProvider";
 import { AuthFlowProvider } from "./auth/AuthFlowProvider";
 
@@ -32,6 +37,15 @@ function App() {
             <Route path="/register-product" element={<RegisterProduct />} />
             <Route path="/authenticate" element={<Authenticate />} />
             <Route path="/profile" element={<Profile />} />
+
+            {/* Supplier Portal Routes */}
+            <Route path="/supplier" element={<Navigate to="/supplier/dashboard" replace />} />
+            <Route path="/supplier/register" element={<SupplierRegister />} />
+            <Route path="/supplier/dashboard" element={<SupplierDashboard />} />
+            <Route path="/supplier/inventory" element={<SupplierInventory />} />
+            <Route path="/supplier/invoices" element={<SupplierInvoices />} />
+            <Route path="/supplier/claims" element={<SupplierClaims />} />
+
             <Route path="*" element={<Landing />} />
           </Routes>
         </AuthFlowProvider>

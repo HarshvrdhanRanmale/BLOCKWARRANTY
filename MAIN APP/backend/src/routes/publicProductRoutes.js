@@ -63,13 +63,18 @@ function identityProjection(product, registeredAt) {
 
   return {
     productId: product.productId,
+    publicId: product.publicId || product.productId,
     brand: product.brand || '',
     model: product.productName || '',
     category: product.category || '',
     description: product.description || '',
     image,
+    serialNumber: product.serialNumber || '',
     registrationStatus: 'registered',
     registeredAt: registeredAt || null,
+    blockchainTxHash: product.blockchainTxHash || null,
+    blockchainBlock: product.blockchainBlock || null,
+    supplierWalletAddress: product.supplierWalletAddress || null,
   };
 }
 
@@ -103,24 +108,33 @@ function warrantyProjection(product, chainWarranty, now = Date.now()) {
   const periodIsValid = period !== null && Number.isFinite(period) && period > 0;
   const rawUnit = hasRegisteredPeriod ? product.warrantyUnit : (invoiceData.warrantyUnit || product.warrantyUnit);
   const unit = ['Days', 'Months', 'Years'].find((option) => option.toLowerCase() === String(rawUnit || '').toLowerCase()) || null;
-  const startDate = periodIsValid
-    ? (validWarrantyDate(product.purchaseDate || invoiceData.purchaseDate) || validWarrantyDate(chainWarranty.startDate))
+  
+  // If product doesn't have an explicit period in invoice but has supplier-verified warranty details
+  const hasSupplierWarranty = Boolean(product.warrantyDetails && (product.warrantyDetails.durationMonths || product.warrantyDetails.endDate));
+  const effectivePeriod = periodIsValid ? period : (hasSupplierWarranty ? product.warrantyDetails.durationMonths : null);
+  const effectiveUnit = periodIsValid ? unit : (hasSupplierWarranty ? 'Months' : null);
+  
+  const startDate = (periodIsValid || hasSupplierWarranty)
+    ? (validWarrantyDate(product.purchaseDate || invoiceData.purchaseDate) || validWarrantyDate(product.warrantyDetails?.startDate) || validWarrantyDate(chainWarranty.startDate))
     : null;
+  
   let expiryDate = null;
-
   if (startDate && periodIsValid && unit) expiryDate = addWarrantyPeriod(startDate, period, unit);
-  if (periodIsValid && !expiryDate) expiryDate = validWarrantyDate(chainWarranty.expiryDate);
+  if (!expiryDate && hasSupplierWarranty && product.warrantyDetails?.endDate) expiryDate = validWarrantyDate(product.warrantyDetails.endDate);
+  if (!expiryDate && periodIsValid) expiryDate = validWarrantyDate(chainWarranty.expiryDate);
 
   const detailsAvailable = Boolean(startDate && expiryDate);
-  const active = detailsAvailable ? now <= new Date(expiryDate).getTime() : Boolean(chainWarranty.verified && chainWarranty.active && periodIsValid);
+  const active = detailsAvailable ? now <= new Date(expiryDate).getTime() : Boolean(chainWarranty.verified && chainWarranty.active && (periodIsValid || hasSupplierWarranty));
+  
   return {
     ...chainWarranty,
-    status: periodIsValid && (detailsAvailable || chainWarranty.verified) ? (active ? 'active' : 'expired') : 'not-configured',
+    status: (periodIsValid || hasSupplierWarranty) && (detailsAvailable || chainWarranty.verified) ? (active ? 'active' : 'expired') : 'not-configured',
     startDate,
     expiryDate,
     active,
-    warrantyPeriod: periodIsValid ? period : null,
-    warrantyUnit: periodIsValid ? unit : null,
+    warrantyPeriod: effectivePeriod,
+    warrantyUnit: effectiveUnit,
+    coverageType: product.warrantyDetails?.coverageType || null,
   };
 }
 
@@ -170,8 +184,46 @@ async function publicProjection(product, type = 'passport') {
       : 'On-chain verification is not yet available for this product.',
   };
 
+  const User = require('../models/User');
+  let supplierName = '';
+  if (product.supplierWalletAddress) {
+    try {
+      const supplierUser = await User.findOne({ walletAddress: product.supplierWalletAddress.toLowerCase() }, 'name').lean();
+      supplierName = supplierUser?.name?.trim() || '';
+    } catch {
+      // ignore
+    }
+  }
+
+  const brandName = product.brand || 'Authorized';
+  const defaultSupplierName = supplierName || `${brandName} Authorized Supplier`;
+  const supplierVerifiedLabel = `${brandName} Supplier Verified`;
+
+  const warrantyVerification = {
+    source: product.verificationSource || 'supplier',
+    provider: defaultSupplierName,
+    supplierName: defaultSupplierName,
+    supplierVerifiedLabel,
+    isSupplierVerified: true,
+    status: product.verificationStatus || 'VERIFIED',
+    verifiedAt: isoDate(product.verifiedAt) || isoDate(product.createdAt),
+    warrantyDetails: product.warrantyDetails
+      ? {
+          status: product.warrantyDetails.status || 'active',
+          coverageType: product.warrantyDetails.coverageType || `${brandName} Authorized Supplier Warranty`,
+          startDate: isoDate(product.warrantyDetails.startDate),
+          endDate: isoDate(product.warrantyDetails.endDate),
+          durationMonths: product.warrantyDetails.durationMonths || 12,
+        }
+      : null,
+  };
+
+  identity.supplierName = defaultSupplierName;
+  identity.supplierVerifiedLabel = supplierVerifiedLabel;
+  identity.isSupplierVerified = true;
+
   if (type === 'warranty') {
-    return { product: identity, warranty, registrationStatus: 'registered', verification };
+    return { product: identity, warranty, registrationStatus: 'registered', verification, warrantyVerification };
   }
 
   const [services, claims] = await Promise.all([
@@ -220,7 +272,7 @@ async function publicProjection(product, type = 'passport') {
 
   const timeline = publicTimeline(product, warranty, serviceHistory);
 
-  return { product: identity, purchase, warranty, ownership: { history }, serviceHistory, timeline, verification };
+  return { product: identity, purchase, warranty, ownership: { history }, serviceHistory, timeline, verification, warrantyVerification };
 }
 
 async function loadProduct(req, res) {

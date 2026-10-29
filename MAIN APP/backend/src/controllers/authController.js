@@ -80,6 +80,46 @@ exports.linkGoogleProfile = async (req, res) => {
   }
 };
 
+exports.registerSupplier = async (req, res) => {
+  try {
+    const result = await authService.registerSupplier(req.user.walletAddress, req.body);
+    return res.status(200).json({
+      success: true,
+      message: 'Supplier registered successfully',
+      user: result.user,
+      token: result.token
+    });
+  } catch (err) {
+    return res.status(err.status || 400).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+exports.registerSupplierDirect = async (req, res) => {
+  try {
+    const { walletAddress, message, signature, supplierData } = req.body;
+    const result = await authService.registerSupplierDirect({
+      walletAddress,
+      message,
+      signature,
+      supplierData
+    });
+    return res.status(200).json({
+      success: true,
+      message: 'Supplier registered and authenticated successfully',
+      user: result.user,
+      token: result.token
+    });
+  } catch (err) {
+    return res.status(err.status || 400).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
+
 exports.logout = (req, res) => {
   return res.status(200).json({
     success: true,

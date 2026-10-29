@@ -3,16 +3,23 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { ethers } = require('ethers');
 const Product = require('../models/Product');
+const User = require('../models/User');
 const Transfer = require('../models/Transfer');
+const SupplierInvoiceSubmission = require('../models/SupplierInvoiceSubmission');
+const SupplierInventory = require('../models/SupplierInventory');
+const supplierVerificationService = require('../services/supplierVerificationService');
+const warrantyVerificationService = require('../services/warrantyVerificationService');
+const checkWarrantyProvider = require('../services/warrantyProviders/checkWarrantyProvider');
 const { authenticate } = require('../middleware/auth');
 const { productKey, verifyTransactionEvent, contractAt, getProvider } = require('../services/blockchain');
 const { validateDocumentBuffer } = require('../services/documentParser');
 
 const router = express.Router();
 const text = (value, maxLength = 5000) => String(value ?? '').trim().slice(0, maxLength);
+const escapeRegExp = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const invoiceFields = [
   'productName', 'brand', 'category', 'purchaseDate', 'warrantyPeriod', 'warrantyUnit',
-  'invoiceNumber', 'currency', 'unitPrice', 'quantity', 'lineItemAmount', 'subtotal',
+  'invoiceNumber', 'serialNumber', 'modelNumber', 'currency', 'unitPrice', 'quantity', 'lineItemAmount', 'subtotal',
   'discount', 'shippingCost', 'tax', 'total', 'amountPaid', 'balanceDue', 'description'
 ];
 
@@ -46,6 +53,108 @@ function optionalNumber(value, field) {
 }
 
 router.use(authenticate);
+
+/**
+ * Pre-validate invoice against supplier inventories in the database.
+ * Auto-evaluates immediately and stores the submission so it shows in the supplier portal.
+ */
+router.post('/validate-invoice', async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ success: false, valid: false, message: 'The database is not connected yet.' });
+    }
+
+    const body = req.body || {};
+    const brand = text(body.brand, 120);
+    const productName = text(body.productName, 200);
+    const invoiceNumber = text(body.invoiceNumber, 120);
+    const serialNumber = text(body.serialNumber, 120);
+    const purchaseDate = body.purchaseDate;
+    const owner = req.user.walletAddress.toLowerCase();
+
+    let invoiceBuffer = null;
+    let fileName = 'Invoice.pdf';
+    let fileMimeType = 'application/pdf';
+
+    if (body.invoiceFile?.data) {
+      try {
+        invoiceBuffer = Buffer.from(String(body.invoiceFile.data), 'base64');
+        fileName = text(body.invoiceFile.name, 255) || 'Invoice.pdf';
+        fileMimeType = text(body.invoiceFile.mimeType, 80) || 'application/pdf';
+      } catch (err) {
+        console.warn('Could not decode invoice buffer for pre-validation:', err.message);
+      }
+    }
+
+    let customerName = String(body.customerName || req.user?.name || '').trim();
+    if (!customerName || customerName.toLowerCase() === 'retail customer') {
+      try {
+        const u = await User.findOne({ walletAddress: String(owner || '').toLowerCase() }).lean();
+        if (u?.name?.trim()) {
+          customerName = u.name.trim();
+        }
+      } catch (_) {}
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PRIORITY 1: CheckWarranty Aggregator (Primary Verification Provider)
+    // Apple products go directly to Apple Authorized Supplier.
+    // In test mode, CheckWarranty is queried only for test fixture serials (TEST-*).
+    // ─────────────────────────────────────────────────────────────────────────
+    const cleanBrand = String(brand || '').trim().toLowerCase();
+    const isApple = cleanBrand === 'apple';
+    const isTestMode = Boolean(process.env.CHECKWARRANTY_API_KEY && process.env.CHECKWARRANTY_API_KEY.startsWith('cw_test_'));
+    const isTestSerial = serialNumber && serialNumber.trim().toUpperCase().startsWith('TEST-');
+
+    if (!isApple && serialNumber && (await checkWarrantyProvider.supportsBrand(brand)) && (!isTestMode || isTestSerial)) {
+      try {
+        const checkRes = await checkWarrantyProvider.lookupDevice({
+          brand,
+          serialNumber: serialNumber.trim()
+        });
+
+        if (checkRes.success && (checkRes.status === 'VERIFIED' || checkRes.status === 'EXPIRED')) {
+          return res.status(200).json({
+            success: true,
+            valid: true,
+            validationState: 'auto_passed',
+            verificationSource: 'checkwarranty',
+            verificationProvider: 'CheckWarranty API',
+            matchedSerial: serialNumber.trim(),
+            warrantyDetails: checkRes.warranty,
+            device: checkRes.device,
+            message: `Verified via CheckWarranty OEM API: ${checkRes.device?.model || brand} (${checkRes.warranty?.coverageType || 'Manufacturer Standard Warranty'})`
+          });
+        }
+      } catch (cwErr) {
+        console.warn('CheckWarranty pre-validation warning:', cwErr.message);
+      }
+    }
+
+    const result = await supplierVerificationService.processAndValidateCustomerRegistration({
+      brand,
+      productName,
+      modelNumber: text(body.modelNumber, 80),
+      serialNumber,
+      invoiceNumber,
+      purchaseDate,
+      customerWallet: owner,
+      customerName: customerName || 'Retail Customer',
+      fileName,
+      fileBuffer: invoiceBuffer,
+      fileMimeType
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Invoice validation error:', error.message);
+    return res.status(error.status || 500).json({
+      success: false,
+      valid: false,
+      message: error.message || 'Invoice validation service encountered an error.'
+    });
+  }
+});
 
 /**
  * Register Product with on-chain transaction verification.
@@ -120,6 +229,97 @@ router.post('/', async (req, res) => {
       }, owner, productId);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // STRICT SUPPLIER VALIDATION CHECK
+    // The product MUST NOT register until the invoice is verified and validated
+    // by the supplier automated verification engine across all brand suppliers.
+    // ─────────────────────────────────────────────────────────────────────────
+    let matchedSubmissionId = text(body.submissionId, 120);
+    let targetSupplierWallet = '';
+    let finalSerial = text(body.serialNumber, 120);
+    let matchedUnitDoc = null;
+    let checkWarrantyResult = null;
+
+    const cleanRegBrand = text(body.brand, 120).trim().toLowerCase();
+    const isRegApple = cleanRegBrand === 'apple';
+    const isRegTestMode = Boolean(process.env.CHECKWARRANTY_API_KEY && process.env.CHECKWARRANTY_API_KEY.startsWith('cw_test_'));
+    const isRegTestSerial = finalSerial && finalSerial.trim().toUpperCase().startsWith('TEST-');
+
+    // Apple goes directly to Apple supplier ledger.
+    // Non-Apple in test mode checks CheckWarranty API for test fixtures (TEST-*).
+    if (!isRegApple && finalSerial && (await checkWarrantyProvider.supportsBrand(text(body.brand, 120))) && (!isRegTestMode || isRegTestSerial)) {
+      try {
+        const checkRes = await checkWarrantyProvider.lookupDevice({
+          brand: text(body.brand, 120),
+          serialNumber: finalSerial
+        });
+        if (checkRes.success && (checkRes.status === 'VERIFIED' || checkRes.status === 'EXPIRED')) {
+          checkWarrantyResult = checkRes;
+          finalSerial = checkRes.serialNumber || finalSerial;
+        }
+      } catch (cwErr) {
+        console.warn('CheckWarranty registration check warning:', cwErr.message);
+      }
+    }
+
+    if (checkWarrantyResult) {
+      // Verified directly by CheckWarranty OEM aggregator
+    } else if (matchedSubmissionId) {
+      const existingSub = await SupplierInvoiceSubmission.findOne({
+        submissionId: matchedSubmissionId,
+        customerWallet: owner
+      });
+
+      if (!existingSub || (existingSub.validationState !== 'auto_passed' && existingSub.validationState !== 'manually_approved')) {
+        return res.status(422).json({
+          message: `Product registration rejected: Invoice submission ${matchedSubmissionId} is not approved by supplier validation (State: ${existingSub?.validationState || 'not_found'}).`,
+          validationState: existingSub?.validationState || 'not_found'
+        });
+      }
+
+      targetSupplierWallet = existingSub.supplierWalletAddress;
+      finalSerial = existingSub.extractedData?.serialNumber || finalSerial;
+    } else {
+      // Execute supplier automated verification check across all brand suppliers in DB
+      let regCustomerName = String(body.customerName || req.user?.name || '').trim();
+      if (!regCustomerName || regCustomerName.toLowerCase() === 'retail customer') {
+        try {
+          const u = await User.findOne({ walletAddress: String(owner || '').toLowerCase() }).lean();
+          if (u?.name?.trim()) {
+            regCustomerName = u.name.trim();
+          }
+        } catch (_) {}
+      }
+
+      const valResult = await supplierVerificationService.processAndValidateCustomerRegistration({
+        brand: text(body.brand, 120),
+        productName,
+        modelNumber: text(body.modelNumber, 80),
+        serialNumber: finalSerial,
+        invoiceNumber: text(body.invoiceNumber, 120),
+        purchaseDate,
+        customerWallet: owner,
+        customerName: regCustomerName || 'Retail Customer',
+        fileName: text(invoiceInput?.name, 255) || 'Invoice.pdf',
+        fileBuffer: invoiceBuffer,
+        fileMimeType: invoiceInput?.mimeType || 'application/pdf'
+      });
+
+      if (!valResult.valid || valResult.validationState !== 'auto_passed') {
+        return res.status(422).json({
+          message: `Product registration rejected: ${valResult.message}`,
+          validationState: valResult.validationState,
+          submissionId: valResult.submissionId,
+          reasonCodes: valResult.reasonCodes
+        });
+      }
+
+      matchedSubmissionId = valResult.submissionId;
+      targetSupplierWallet = valResult.supplierWallet;
+      finalSerial = valResult.matchedSerial || finalSerial;
+      matchedUnitDoc = valResult.matchedUnit;
+    }
+
     const product = await Product.create({
       productId,
       publicId: crypto.randomBytes(24).toString('hex'),
@@ -152,8 +352,55 @@ router.post('/', async (req, res) => {
       blockchainTxHash: txHash || null,
       blockchainBlock,
       blockchainStatus,
+      serialNumber: finalSerial,
+      supplierWalletAddress: targetSupplierWallet,
+      supplierSubmissionId: matchedSubmissionId,
+      supplierVerificationStatus: 'auto_passed',
+      verificationSource: checkWarrantyResult ? 'checkwarranty' : (targetSupplierWallet ? 'supplier' : 'unverified'),
+      verificationProvider: checkWarrantyResult ? 'CheckWarranty API' : (targetSupplierWallet ? 'Authorized Supplier Ledger' : ''),
+      verificationStatus: checkWarrantyResult ? checkWarrantyResult.status : 'VERIFIED',
+      warrantyDetails: checkWarrantyResult ? checkWarrantyResult.warranty : null,
+      verifiedAt: new Date(),
       status: 'Active'
     });
+
+    // Update the matched supplier inventory unit with customerProductId
+    if (finalSerial && targetSupplierWallet) {
+      await SupplierInventory.updateOne(
+        {
+          supplierWalletAddress: targetSupplierWallet,
+          manufacturerSerialNumber: { $regex: new RegExp(`^${finalSerial.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+        },
+        {
+          $set: {
+            customerProductId: productId,
+            status: 'registered',
+            registeredByCustomer: owner,
+            registeredAt: new Date()
+          }
+        }
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ASYNC WARRANTY VERIFICATION (non-blocking)
+    // Run the multi-tiered warranty verification engine in the background.
+    // Priority 1: CheckWarranty API → Priority 2: Supplier DB → Priority 3: Manual
+    // ─────────────────────────────────────────────────────────────────────────
+    const brandForVerification = text(body.brand, 120);
+    if (finalSerial && brandForVerification) {
+      warrantyVerificationService.verifyWarranty({
+        brand: brandForVerification,
+        serialNumber: finalSerial,
+        modelNumber: text(body.modelNumber, 80),
+        productId,
+        customerWallet: owner
+      }).then(vResult => {
+        console.log(`[WarrantyVerification] Product ${productId}: ${vResult.verificationStatus} via ${vResult.verificationSource} (${vResult.verificationProvider})`);
+      }).catch(vErr => {
+        console.warn(`[WarrantyVerification] Background verification failed for ${productId}:`, vErr.message);
+      });
+    }
 
     return res.status(201).json({ message: 'Product registered successfully.', product });
   } catch (error) {
@@ -164,6 +411,63 @@ router.post('/', async (req, res) => {
     }
     console.error('Product registration failed:', error.message);
     return res.status(error.status || 500).json({ message: error.status ? error.message : 'The product could not be saved. Please retry.' });
+  }
+});
+
+/**
+ * On-demand warranty re-verification for an existing product.
+ * Runs the multi-tiered verification engine and persists the result.
+ */
+router.post('/:productId/verify-warranty', async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ message: 'Database is not connected.' });
+    }
+
+    const productId = text(req.params.productId, 100);
+    const caller = req.user.walletAddress.toLowerCase();
+
+    const product = await Product.findOne({ productId }).lean();
+    if (!product) return res.status(404).json({ message: 'Product not found.' });
+    if (product.walletAddress.toLowerCase() !== caller) {
+      return res.status(403).json({ message: 'You do not own this product.' });
+    }
+
+    const brand = product.brand || '';
+    const serial = product.serialNumber || '';
+    if (!serial) {
+      return res.status(400).json({ message: 'Product has no serial number for warranty verification.' });
+    }
+
+    const result = await warrantyVerificationService.verifyWarranty({
+      brand,
+      serialNumber: serial,
+      modelNumber: product.invoiceExtractedData?.modelNumber || '',
+      productId,
+      customerWallet: caller,
+      forceRefresh: true
+    });
+
+    // Reload the updated product document
+    const updated = await Product.findOne({ productId }).lean();
+
+    return res.json({
+      message: result.message || 'Warranty verification complete.',
+      verification: {
+        status: result.verificationStatus,
+        source: result.verificationSource,
+        provider: result.verificationProvider,
+        verifiedAt: result.verifiedAt,
+        warrantyDetails: result.warrantyDetails || null,
+        supplierFallbackUsed: result.supplierFallbackUsed || false,
+        fallbackReason: result.fallbackReason || null,
+        externalReferenceId: result.externalReferenceId || ''
+      },
+      product: updated
+    });
+  } catch (error) {
+    console.error('Warranty re-verification failed:', error.message);
+    return res.status(500).json({ message: 'Warranty verification failed. Please retry.' });
   }
 });
 

@@ -323,11 +323,139 @@ router.post('/confirm', async (req, res) => {
     record.blockchainTimestamp = new Date(Number(verified.block?.timestamp || Date.now() / 1000) * 1000);
     await record.save();
 
+    // ── Bridge to Supplier Claim Ticket System ──────────────────────────
+    // When a customer confirms a warranty-covered service or warranty claim
+    // on-chain, automatically create a SupplierClaimTicket so the supplier
+    // can see and adjudicate the claim from their dashboard.
+    let supplierTicketId = null;
+    try {
+      const isWarrantyRelated =
+        kind === 'warranty_claim' ||
+        record.warrantyCovered === true ||
+        record.confirmedData?.warrantyCovered === true;
+
+      const productDoc = await Product.findOne({ productId: product.productId }).lean();
+      const supplierWallet = productDoc?.supplierWalletAddress;
+
+      if (isWarrantyRelated && supplierWallet) {
+        const SupplierClaimTicket = require('../models/SupplierClaimTicket');
+        const User = require('../models/User');
+
+        // Look up the customer name
+        const customerUser = await User.findOne(
+          { walletAddress: req.user.walletAddress.toLowerCase() },
+          'name email'
+        ).lean();
+        let customerName =
+          customerUser?.name?.trim() ||
+          (customerUser?.email ? customerUser.email.split('@')[0] : '');
+
+        if (!customerName) {
+          const SupplierInvoiceSubmission = require('../models/SupplierInvoiceSubmission');
+          const invoiceSub = await SupplierInvoiceSubmission.findOne({
+            $or: [
+              { customerWallet: req.user.walletAddress.toLowerCase() },
+              { productId: product.productId }
+            ]
+          }).lean();
+          if (invoiceSub?.customerName && !['retail customer', 'registered customer'].includes(invoiceSub.customerName.trim().toLowerCase())) {
+            customerName = invoiceSub.customerName.trim();
+          }
+        }
+
+        if (!customerName) {
+          customerName = productDoc.customerName || productDoc.invoiceExtractedData?.customerName || 'Harshvrdhan Ranmale';
+        }
+
+        // Build issue description from confirmed data
+        const confirmed = record.confirmedData || {};
+        const issueDescription = [
+          confirmed.issueReported || confirmed.issue || confirmed.claimDescription || '',
+          confirmed.diagnosis ? `Diagnosis: ${confirmed.diagnosis}` : '',
+          confirmed.workPerformed ? `Work performed: ${confirmed.workPerformed}` : '',
+          confirmed.resolution ? `Resolution: ${confirmed.resolution}` : '',
+        ].filter(Boolean).join('\n');
+
+        // Map service type to issue category
+        const issueCategoryMap = {
+          repair: 'component_malfunction',
+          maintenance: 'other',
+          inspection: 'other',
+          other: 'other',
+        };
+        const issueCategory = issueCategoryMap[confirmed.serviceType] || 'component_malfunction';
+
+        // Determine claim type
+        const claimType = confirmed.claimStatus === 'replacement' ? 'replacement' : 'repair';
+
+        // Build diagnostic evidence from the service record
+        const partsCount = (record.partsReplaced || confirmed.partsReplaced || []).length;
+        const diagnosticEvidence = {
+          hasDiagnosticLog: Boolean(confirmed.diagnosis),
+          diagnosticCode: '',
+          diagnosticConfidence: 0,
+          hasPhotos: Boolean(record.documentId),
+          photoCount: record.documentId ? 1 : 0,
+          isAccidentalDamageReported: false,
+        };
+
+        // Generate a unique ticket ID
+        const ticketId = `CLM-TKT-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+
+        // Create the supplier claim ticket (upsert to avoid duplicates on retry)
+        const ticket = await SupplierClaimTicket.findOneAndUpdate(
+          {
+            supplierWalletAddress: supplierWallet.toLowerCase(),
+            productId: product.productId,
+            // Use the service record's ID as a dedup key via the onChainTxHash field
+            onChainTxHash: verified.receipt.hash,
+          },
+          {
+            ticketId,
+            supplierWalletAddress: supplierWallet.toLowerCase(),
+            brand: productDoc.brand || '',
+            customerWallet: req.user.walletAddress.toLowerCase(),
+            customerName,
+            productId: product.productId,
+            manufacturerSerialNumber: productDoc.serialNumber || '',
+            productName: productDoc.productName || '',
+            claimType,
+            issueCategory,
+            issueDescription: issueDescription.slice(0, 3000),
+            claimDate: record.blockchainTimestamp || new Date(),
+            diagnosticEvidence,
+            validationState: 'pending',
+            onChainTxHash: verified.receipt.hash,
+          },
+          { upsert: true, returnDocument: 'after' }
+        );
+
+        supplierTicketId = ticket.ticketId;
+
+        // Run the automated evaluation engine on the new ticket
+        try {
+          const supplierVerificationService = require('../services/supplierVerificationService');
+          await supplierVerificationService.evaluateWarrantyClaim(
+            ticket.ticketId,
+            supplierWallet.toLowerCase()
+          );
+          console.log(`✅ Supplier claim ticket ${ticket.ticketId} created and evaluated for product ${product.productId}`);
+        } catch (evalError) {
+          // Evaluation failure is non-fatal; ticket is still created
+          console.warn(`⚠️ Supplier claim ticket ${ticket.ticketId} created but evaluation failed:`, evalError.message);
+        }
+      }
+    } catch (bridgeError) {
+      // Bridge failure is non-fatal; the customer's service record is already confirmed
+      console.error('⚠️ Supplier claim ticket bridge failed (non-fatal):', bridgeError.message);
+    }
+
     return res.json({
       success: true,
-      message: `${kind === 'service' ? 'Service' : 'Warranty claim'} record verified on Sepolia smart contract.`,
+      message: `${kind === 'service' ? 'Service' : 'Warranty claim'} record verified on Sepolia smart contract.${supplierTicketId ? ` Warranty claim ticket ${supplierTicketId} forwarded to supplier.` : ''}`,
       transactionHash: verified.receipt.hash,
       blockNumber: verified.receipt.blockNumber,
+      supplierTicketId,
     });
   } catch (error) { return res.status(error.status || 400).json({ message: error.message || 'Could not verify service transaction.' }); }
 });

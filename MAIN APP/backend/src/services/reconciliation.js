@@ -37,7 +37,12 @@ async function handleProductRegistered(parsed, log) {
   const product = products.find(
     (p) => productKey(p.productId).toLowerCase() === pkey
   );
-  if (product && product.walletAddress.toLowerCase() === parsed.args.owner.toLowerCase()) {
+  if (
+    product &&
+    product.walletAddress &&
+    parsed.args?.owner &&
+    product.walletAddress.toLowerCase() === parsed.args.owner.toLowerCase()
+  ) {
     product.blockchainStatus = 'confirmed';
     product.blockchainTxHash = log.transactionHash;
     product.blockchainBlock = log.blockNumber;
@@ -56,6 +61,8 @@ async function handleOwnershipTransferred(parsed, log) {
   );
   if (
     product &&
+    product.walletAddress &&
+    parsed.args?.previousOwner &&
     product.walletAddress.toLowerCase() === parsed.args.previousOwner.toLowerCase()
   ) {
     const alreadyRecorded = product.ownershipHistory.some(
@@ -79,21 +86,22 @@ async function handleOwnershipTransferred(parsed, log) {
 }
 
 async function handleServiceOrClaim(parsed, log, isService) {
+  if (!parsed?.args?.productKey) return;
   const pkey = parsed.args.productKey.toLowerCase();
   const idField = isService ? 'serviceId' : 'warrantyClaimId';
   const Model = isService ? ServiceRecord : WarrantyClaim;
-  const serviceKeyField = isService ? 'serviceKey' : 'claimKey';
+  const argId = isService ? parsed.args.serviceId : parsed.args.claimId;
 
   const records = await Model.find(
     { productId: { $exists: true }, blockchainStatus: { $in: ['pending', 'confirmed'] } }
   );
 
   const record = records.find(
-    (item) =>
-      productKey(item.productId).toLowerCase() === pkey &&
-      keyHash(item[idField]).toLowerCase() === parsed.args[serviceKeyField].toLowerCase() &&
-      `0x${item.documentHash}`.toLowerCase() === parsed.args.documentHash.toLowerCase() &&
-      hashDetails(item.confirmedData).toLowerCase() === parsed.args.detailsHash.toLowerCase()
+    (item) => {
+      const matchPkey = productKey(item.productId).toLowerCase() === pkey;
+      const matchId = argId != null && String(item[idField]) === String(argId);
+      return matchPkey && matchId;
+    }
   );
 
   if (record) {
@@ -104,7 +112,9 @@ async function handleServiceOrClaim(parsed, log, isService) {
     record.txHash = log.transactionHash;
     record.blockNumber = log.blockNumber;
     record.logIndex = log.index;
-    record.blockchainTimestamp = new Date(Number(block.timestamp) * 1000);
+    if (block) {
+      record.blockchainTimestamp = new Date(Number(block.timestamp) * 1000);
+    }
     await record.save();
   }
 }
@@ -179,7 +189,7 @@ async function reconcileOnce() {
       from = to + 1;
     }
   } catch (error) {
-    console.error('Blockchain event synchronization failed:', error.message);
+    console.error('Blockchain event synchronization failed:', error.stack || error.message);
   } finally {
     busy = false;
   }

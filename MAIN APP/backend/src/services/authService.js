@@ -235,6 +235,206 @@ class AuthService {
   }
 
   /**
+   * Register or upgrade authenticated wallet as a verified supplier
+   */
+  async registerSupplier(walletAddress, supplierData) {
+    const normalized = this.normalizeAddress(walletAddress);
+    const key = normalized.toLowerCase();
+
+    let user = await User.findOne({ walletAddress: key });
+    if (!user) {
+      throw Object.assign(new Error('User not found. Please connect your wallet first.'), { status: 404 });
+    }
+
+    const {
+      companyName,
+      brandName,
+      taxId,
+      businessEmail,
+      website = '',
+      phone = '',
+      registeredAddress = '',
+      authorizedBrands = []
+    } = supplierData;
+
+    if (!companyName || !brandName || !taxId || !businessEmail) {
+      throw Object.assign(
+        new Error('Missing required supplier details: companyName, brandName, taxId, and businessEmail are required.'),
+        { status: 400 }
+      );
+    }
+
+    user.role = 'supplier';
+    user.name = companyName.trim();
+    user.email = businessEmail.trim().toLowerCase();
+    user.profileComplete = true;
+    user.supplierProfile = {
+      companyName: companyName.trim(),
+      brandName: brandName.trim(),
+      taxId: taxId.trim(),
+      businessEmail: businessEmail.trim().toLowerCase(),
+      website: website.trim(),
+      phone: phone.trim(),
+      registeredAddress: registeredAddress.trim(),
+      authorizedBrands: Array.isArray(authorizedBrands)
+        ? authorizedBrands.map((b) => String(b).trim()).filter(Boolean)
+        : [brandName.trim()],
+      isVerified: true
+    };
+
+    await user.save();
+
+    // Re-issue JWT with supplier role
+    const token = jwt.sign(
+      {
+        jti: crypto.randomUUID(),
+        walletAddress: normalized,
+        sub: normalized,
+        role: 'supplier'
+      },
+      config.JWT_SECRET,
+      { expiresIn: config.JWT_EXPIRES_IN }
+    );
+
+    return {
+      token,
+      user: this._serializeUser(user)
+    };
+  }
+
+  /**
+   * Register a supplier directly with wallet signature verification (no prior session required).
+   */
+  async registerSupplierDirect({ walletAddress, message, signature, supplierData }) {
+    if (!walletAddress || !message || !signature) {
+      throw Object.assign(
+        new Error('Missing required fields: walletAddress, message, and signature must be provided.'),
+        { status: 400 }
+      );
+    }
+
+    const {
+      companyName,
+      brandName,
+      taxId,
+      businessEmail,
+      website = '',
+      phone = '',
+      registeredAddress = '',
+      authorizedBrands = []
+    } = supplierData || {};
+
+    if (!companyName || !brandName || !taxId || !businessEmail) {
+      throw Object.assign(
+        new Error('Missing required supplier details: companyName, brandName, taxId, and businessEmail are required.'),
+        { status: 400 }
+      );
+    }
+
+    const normalized = this.normalizeAddress(walletAddress);
+    const key = normalized.toLowerCase();
+
+    // Fetch challenge from DB
+    const challenge = await Challenge.findOne({ walletAddress: key });
+    if (!challenge) {
+      throw Object.assign(
+        new Error('No active authentication challenge found for this address. Please request a new nonce.'),
+        { status: 401 }
+      );
+    }
+
+    if (Date.now() > challenge.expiresAt.getTime()) {
+      await Challenge.deleteOne({ walletAddress: key });
+      throw Object.assign(
+        new Error('Authentication challenge has expired. Please request a new nonce.'),
+        { status: 401 }
+      );
+    }
+
+    // Verify message matches challenge
+    if (challenge.message.trim() !== message.trim()) {
+      throw Object.assign(
+        new Error('Authentication message does not match the challenge issued.'),
+        { status: 401 }
+      );
+    }
+
+    // Cryptographically recover signer address
+    let recoveredAddress;
+    try {
+      recoveredAddress = ethers.verifyMessage(message, signature);
+    } catch (err) {
+      throw Object.assign(
+        new Error(`Cryptographic signature verification failed: ${err.message}`),
+        { status: 401 }
+      );
+    }
+
+    if (recoveredAddress.toLowerCase() !== key) {
+      throw Object.assign(
+        new Error(`Signature mismatch: recovered address ${recoveredAddress} does not match expected address ${normalized}`),
+        { status: 401 }
+      );
+    }
+
+    // Consume challenge
+    await Challenge.deleteOne({ walletAddress: key });
+
+    const now = new Date();
+
+    let user = await User.findOne({ walletAddress: key });
+    if (!user) {
+      user = new User({
+        walletAddress: key,
+        walletAddressChecksum: normalized,
+        name: companyName.trim(),
+        email: businessEmail.trim().toLowerCase(),
+        role: 'supplier',
+        profileComplete: true,
+        lastLoginAt: now
+      });
+    } else {
+      user.role = 'supplier';
+      user.name = companyName.trim();
+      user.email = businessEmail.trim().toLowerCase();
+      user.profileComplete = true;
+      user.lastLoginAt = now;
+    }
+
+    user.supplierProfile = {
+      companyName: companyName.trim(),
+      brandName: brandName.trim(),
+      taxId: taxId.trim(),
+      businessEmail: businessEmail.trim().toLowerCase(),
+      website: website.trim(),
+      phone: phone.trim(),
+      registeredAddress: registeredAddress.trim(),
+      authorizedBrands: Array.isArray(authorizedBrands)
+        ? authorizedBrands.map((b) => String(b).trim()).filter(Boolean)
+        : [brandName.trim()],
+      isVerified: true
+    };
+
+    await user.save();
+
+    const token = jwt.sign(
+      {
+        jti: crypto.randomUUID(),
+        walletAddress: normalized,
+        sub: normalized,
+        role: 'supplier'
+      },
+      config.JWT_SECRET,
+      { expiresIn: config.JWT_EXPIRES_IN }
+    );
+
+    return {
+      token,
+      user: this._serializeUser(user)
+    };
+  }
+
+  /**
    * Convert Mongoose document to plain JS object for API responses
    */
   _serializeUser(user) {
@@ -246,6 +446,7 @@ class AuthService {
       role: user.role,
       profileComplete: user.profileComplete,
       googleLinked: Boolean(user.googleSub),
+      supplierProfile: user.supplierProfile || null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastLoginAt: user.lastLoginAt

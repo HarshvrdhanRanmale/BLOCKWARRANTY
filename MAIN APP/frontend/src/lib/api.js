@@ -89,3 +89,15 @@ export function apiPatch(path, body, token) {
     body: JSON.stringify(body),
   });
 }
+
+/**
+ * Authenticated DELETE helper.
+ * @param {string} path
+ * @param {string} [token]
+ */
+export function apiDelete(path, token) {
+  return apiFetch(`${API_BASE_URL}${path}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+}

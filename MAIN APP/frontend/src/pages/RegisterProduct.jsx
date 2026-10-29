@@ -68,6 +68,8 @@ const createEmptyFormData = () => ({
   warrantyPeriod: "",
   warrantyUnit: "Years",
   invoiceNumber: "",
+  serialNumber: "",
+  modelNumber: "",
   currency: "",
   unitPrice: "",
   quantity: "",
@@ -86,7 +88,7 @@ const createEmptyFormData = () => ({
 });
 
 function RegisterProduct() {
-  const { token, signer, isCorrectNetwork, switchToSepolia } = useWallet();
+  const { token, signer, isCorrectNetwork, switchToSepolia, user } = useWallet();
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebarPreference();
 
   const [currentStep, setCurrentStep] = useState(1);
@@ -217,6 +219,8 @@ function RegisterProduct() {
         warrantyPeriod: extracted.warrantyPeriod || "",
         warrantyUnit: extracted.warrantyUnit || "Years",
         invoiceNumber: extracted.invoiceNumber || "",
+        serialNumber: extracted.serialNumber || "",
+        modelNumber: extracted.modelNumber || "",
         currency: extracted.currency || "",
         unitPrice: extracted.unitPrice || "",
         quantity: extracted.quantity || "",
@@ -443,15 +447,60 @@ function RegisterProduct() {
         await switchToSepolia();
       }
 
-      setBlockchainStatus("pending");
-      setBlockchainMessage("Preparing product hashes and blockchain transaction...");
+      // ───────────────────────────────────────────────────────────────────────
+      // 1. Prepare invoice payload
+      // ───────────────────────────────────────────────────────────────────────
+      const invoicePayload = invoiceFile ? await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({
+          name: invoiceFile.name,
+          mimeType: invoiceFile.type,
+          data: String(reader.result).split(",")[1] || "",
+        });
+        reader.onerror = () => reject(new Error("The invoice file could not be prepared for storage."));
+        reader.readAsDataURL(invoiceFile);
+      }) : null;
 
-      // 1. Generate unique readable Product ID
+      // ───────────────────────────────────────────────────────────────────────
+      // 2. Automated Supplier Verification check FIRST
+      // The product MUST NOT register until the invoice gets verified and
+      // validated by the supplier side automated engine.
+      // ───────────────────────────────────────────────────────────────────────
+      setBlockchainStatus("pending");
+      setBlockchainMessage("Validating invoice against supplier inventory & automated verification engine...");
+
+      const valResponse = await fetch(`${API_BASE_URL}/api/products/validate-invoice`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token || localStorage.getItem("blockwarranty_token") || ""}`,
+        },
+        body: JSON.stringify({
+          ...formData,
+          customerName: user?.name || "",
+          invoiceFile: invoicePayload,
+        }),
+      });
+
+      const valData = await readApiJson(valResponse, "Invoice validation");
+
+      if (!valResponse.ok || !valData.valid || valData.validationState !== "auto_passed") {
+        const failMessage = valData.message || "Supplier automated verification rejected this invoice. Product cannot be registered.";
+        setBlockchainStatus("failed");
+        setBlockchainMessage(failMessage);
+        setErrorMessage(failMessage);
+        return;
+      }
+
+      setBlockchainMessage("Invoice verified and approved by supplier! Preparing on-chain registration...");
+
+      // 3. Generate unique readable Product ID
       const pId = `BW-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-      // 2. Compute local hashes
+      // 4. Compute local hashes
       const pKey = productKey(pId);
-      const sHash = serialHash(formData.invoiceNumber || pId);
+      const effectiveSerial = valData.matchedSerial || formData.serialNumber || formData.invoiceNumber || pId;
+      const sHash = serialHash(effectiveSerial);
       const mHash = metadataHash({
         productName: formData.productName,
         brand: formData.brand,
@@ -466,7 +515,7 @@ function RegisterProduct() {
 
       setBlockchainMessage("Please confirm the product registration transaction in MetaMask...");
 
-      // 3. Prompt MetaMask transaction directly on BCCC contract
+      // 5. Prompt MetaMask transaction directly on BCCC contract
       const { txHash } = await registerProductOnChain(signer, {
         productKey: pKey,
         serialNumberHash: sHash,
@@ -478,20 +527,9 @@ function RegisterProduct() {
 
       setBlockchainStatus("submitted");
       setBlockchainTxHash(txHash);
-      setBlockchainMessage("Transaction confirmed on Sepolia! Verifying and saving private metadata...");
+      setBlockchainMessage("Transaction confirmed on Sepolia! Saving verified product passport...");
 
-      // 4. Send confirmed transaction hash and metadata to backend
-      const invoicePayload = invoiceFile ? await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve({
-          name: invoiceFile.name,
-          mimeType: invoiceFile.type,
-          data: String(reader.result).split(",")[1] || "",
-        });
-        reader.onerror = () => reject(new Error("The invoice file could not be prepared for storage."));
-        reader.readAsDataURL(invoiceFile);
-      }) : null;
-
+      // 6. Send confirmed transaction hash, submissionId, and metadata to backend
       const response = await fetch(
         `${API_BASE_URL}/api/products`,
         {
@@ -502,6 +540,9 @@ function RegisterProduct() {
           },
           body: JSON.stringify({
             ...formData,
+            customerName: user?.name || "",
+            serialNumber: effectiveSerial,
+            submissionId: valData.submissionId,
             productId: pId,
             txHash,
             invoiceFile: invoicePayload,
@@ -984,6 +1025,14 @@ function RegisterProduct() {
                         name="invoiceNumber"
                         placeholder="Invoice number"
                         value={formData.invoiceNumber}
+                        onChange={handleChange}
+                      />
+
+                      <FormField
+                        label="Serial Number / IMEI"
+                        name="serialNumber"
+                        placeholder="e.g. SYNIP13A7K9Q (optional, auto-detected from invoice)"
+                        value={formData.serialNumber}
                         onChange={handleChange}
                       />
 

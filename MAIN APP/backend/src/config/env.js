@@ -26,4 +26,8 @@ module.exports = {
   // relayer transfer is disabled and the manual seller MetaMask flow is used.
   RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY || '',
   SEPOLIA_DEPLOYER_PRIVATE_KEY: process.env.SEPOLIA_DEPLOYER_PRIVATE_KEY || '',
+  // CheckWarranty B2B Public API (Third-party warranty aggregator)
+  // Server-side only; never exposed to client or frontend bundles.
+  CHECKWARRANTY_API_KEY: process.env.CHECKWARRANTY_API_KEY || '',
+  CHECKWARRANTY_BASE_URL: process.env.CHECKWARRANTY_BASE_URL || 'https://api.checkwarranty.info',
 };

@@ -37,3 +37,7 @@ client/
 # Misc
 coverage/
 .nyc_output/
+
+# Temporary / scratch scripts
+**/_*.js
+_*.js

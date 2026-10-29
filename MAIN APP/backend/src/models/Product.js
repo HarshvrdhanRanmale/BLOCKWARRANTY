@@ -31,6 +31,16 @@ const productSchema = new mongoose.Schema({
   blockchainStatus: { type: String, enum: ['not_registered', 'pending', 'submitted', 'confirmed', 'failed'], default: 'not_registered' },
   blockchainTxHash: { type: String, default: '' },
   blockchainBlock: { type: Number, default: null },
+  serialNumber: { type: String, default: '', trim: true },
+  supplierWalletAddress: { type: String, default: '', lowercase: true, trim: true },
+  supplierSubmissionId: { type: String, default: '', trim: true },
+  supplierVerificationStatus: { type: String, default: 'unverified', trim: true },
+  verificationSource: { type: String, enum: ['checkwarranty', 'supplier', 'manual', 'unverified'], default: 'unverified' },
+  verificationProvider: { type: String, default: '' },
+  verificationStatus: { type: String, default: 'unverified' },
+  externalReferenceId: { type: String, default: '' },
+  verifiedAt: { type: Date, default: null },
+  warrantyDetails: { type: mongoose.Schema.Types.Mixed, default: null },
   ownershipHistory: [{ from: { type: String, lowercase: true }, to: { type: String, lowercase: true }, transferredAt: Date, txHash: String }],
   status: { type: String, enum: ['Active', 'Expired', 'Transferred'], default: 'Active' }
 }, { timestamps: true, collection: 'products' });

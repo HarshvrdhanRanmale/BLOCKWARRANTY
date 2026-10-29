@@ -95,6 +95,13 @@ function Landing() {
           />
 
           <Link
+            to="/supplier/register"
+            className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-[#8B1E3F] hover:text-[#171717] transition"
+          >
+            Supplier Portal →
+          </Link>
+
+          <Link
             to="/register"
             className="rounded-full bg-[#8B1E3F] px-4 py-2.5 text-xs font-semibold text-white shadow-[0_14px_28px_rgba(139,30,63,0.18)] transition hover:bg-[#171717] sm:px-6 sm:py-3 sm:text-sm lg:px-7"
           >

@@ -8,6 +8,8 @@ const publicProductRoutes = require('./routes/publicProductRoutes');
 const serviceRoutes = require('./routes/serviceRoutes');
 const blockchainRoutes = require('./routes/blockchainRoutes').router;
 const transferRoutes = require('./routes/transferRoutes');
+const supplierInventoryRoutes = require('./routes/supplierInventoryRoutes');
+const supplierVerificationRoutes = require('./routes/supplierVerificationRoutes');
 const config = require('./config/env');
 
 const app = express();
@@ -129,6 +131,8 @@ app.get('/health/ready', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/transfers', transferRoutes);
 app.use('/api/public/products', publicProductRoutes);
+app.use('/api/supplier/inventory', supplierInventoryRoutes);
+app.use('/api/supplier/verification', supplierVerificationRoutes);
 app.use('/api/products/:productId/services', serviceRoutes);
 app.use('/api/products/:productId/blockchain', blockchainRoutes);
 app.use('/api/products', productRoutes);
@@ -196,7 +200,7 @@ app.post('/api/extract-invoice', async (req, res) => {
 
   const fields = [
     'productName', 'brand', 'category', 'purchaseDate', 'warrantyPeriod', 'warrantyUnit',
-    'invoiceNumber', 'currency', 'unitPrice', 'quantity', 'lineItemAmount', 'subtotal',
+    'invoiceNumber', 'serialNumber', 'modelNumber', 'currency', 'unitPrice', 'quantity', 'lineItemAmount', 'subtotal',
     'discount', 'shippingCost', 'tax', 'total', 'amountPaid', 'balanceDue', 'description'
   ];
   const controller = new AbortController();

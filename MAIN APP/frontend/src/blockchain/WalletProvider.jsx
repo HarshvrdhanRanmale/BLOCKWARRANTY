@@ -272,6 +272,89 @@ export function WalletProvider({ children }) {
     return data.user;
   }, [token]);
 
+  const registerSupplierProfile = useCallback(
+    async (supplierData, customSigner = null) => {
+      const currentToken = token || localStorage.getItem("blockwarranty_token");
+
+      // Case A: User is already logged in with an active token
+      if (currentToken) {
+        const res = await fetch(`${API_BASE_URL}/api/auth/register-supplier`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${currentToken}`,
+          },
+          body: JSON.stringify(supplierData),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || "Failed to register as supplier.");
+        }
+
+        if (data.token) {
+          setToken(data.token);
+          localStorage.setItem("blockwarranty_token", data.token);
+        }
+        if (data.user) {
+          setUser(data.user);
+          localStorage.setItem("blockwarranty_user", JSON.stringify(data.user));
+        }
+        return data;
+      }
+
+      // Case B: Direct registration with wallet signature
+      const activeSigner = customSigner || signer;
+      if (!activeSigner) {
+        throw new Error("Please connect your MetaMask wallet before authorizing supplier registration.");
+      }
+
+      const address = walletAddress || (await activeSigner.getAddress());
+
+      // 1. Get nonce / challenge
+      const nonceRes = await fetch(`${API_BASE_URL}/api/auth/nonce`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walletAddress: address }),
+      });
+      const nonceData = await nonceRes.json();
+      if (!nonceRes.ok || !nonceData.success) {
+        throw new Error(nonceData.error || "Failed to request authentication challenge.");
+      }
+
+      // 2. Sign challenge with MetaMask (gas-free)
+      const signature = await activeSigner.signMessage(nonceData.message);
+
+      // 3. Register directly with signature and business profile
+      const res = await fetch(`${API_BASE_URL}/api/auth/register-supplier-direct`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: address,
+          message: nonceData.message,
+          signature,
+          supplierData,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to register as supplier.");
+      }
+
+      if (data.token) {
+        setToken(data.token);
+        localStorage.setItem("blockwarranty_token", data.token);
+      }
+      if (data.user) {
+        setUser(data.user);
+        localStorage.setItem("blockwarranty_user", JSON.stringify(data.user));
+      }
+      setAuthenticationStatus("success");
+      return data;
+    },
+    [token, signer, walletAddress]
+  );
+
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
@@ -297,6 +380,7 @@ export function WalletProvider({ children }) {
       switchToSepolia,
       authenticateWithBackend,
       linkGoogleProfile,
+      registerSupplierProfile,
       logout,
       setAuthenticationStatus,
     }),
@@ -316,6 +400,7 @@ export function WalletProvider({ children }) {
       switchToSepolia,
       authenticateWithBackend,
       linkGoogleProfile,
+      registerSupplierProfile,
       logout,
     ]
   );

@@ -530,6 +530,20 @@ export default function MyProducts() {
             </table>
           </div>
         )}
+
+        {/* Footer info bar */}
+        {!loading && products.length > 0 && (
+          <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500">
+            <p>
+              Showing <span className="font-semibold text-slate-700">{filteredProducts.length}</span> of{" "}
+              <span className="font-semibold text-slate-700">{products.length}</span> items
+            </p>
+            <div className="inline-flex items-center gap-1.5 text-slate-400">
+              <CheckCircle2 size={14} className="text-blue-600" />
+              <span>All products are cryptographically linked to your wallet</span>
+            </div>
+          </div>
+        )}
       </section>
     </WorkspaceLayout>
   );
@@ -542,10 +556,10 @@ function InventoryProductCard({ product }) {
   const isExpired = days != null && days < 0;
 
   return (
-    <div className="group flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-md">
-      <div>
+    <div className="group flex h-full flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-md">
+      <div className="flex flex-1 flex-col">
         {/* Product Image Header */}
-        <div className="relative flex h-48 items-center justify-center overflow-hidden bg-slate-50 p-4">
+        <div className="relative flex h-48 shrink-0 items-center justify-center overflow-hidden bg-slate-50 p-4">
           {product.productImage ? (
             <img
               src={product.productImage}
@@ -582,13 +596,15 @@ function InventoryProductCard({ product }) {
         </div>
 
         {/* Card Body */}
-        <div className="p-4">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-            {[product.brand, product.category].filter(Boolean).join(" · ") || "Product"}
-          </p>
-          <h3 className="mt-1 truncate text-base font-bold text-slate-900 group-hover:text-blue-600">
-            {product.productName}
-          </h3>
+        <div className="flex flex-1 flex-col justify-between p-4">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              {[product.brand, product.category].filter(Boolean).join(" · ") || "Product"}
+            </p>
+            <h3 className="mt-1 line-clamp-2 text-base font-bold text-slate-900 group-hover:text-blue-600" title={product.productName}>
+              {product.productName}
+            </h3>
+          </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2.5 text-[11px]">
             <div>
@@ -606,7 +622,7 @@ function InventoryProductCard({ product }) {
       </div>
 
       {/* Card Actions Footer */}
-      <div className="flex items-center gap-2 border-t border-slate-100 p-3 bg-slate-50/50">
+      <div className="flex shrink-0 items-center gap-2 border-t border-slate-100 p-3 bg-slate-50/50">
         <Link
           to={`/products/${encodeURIComponent(product.productId || product._id)}`}
           state={{ product }}

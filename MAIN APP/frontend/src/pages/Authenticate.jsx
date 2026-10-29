@@ -109,11 +109,12 @@ export default function Authenticate() {
   }, [showProfileSetup, googleClientId, handleGoogleSuccess]);
   useEffect(() => {
     if (authenticationStatus === "success" && !showProfileSetup) {
-      const timer = window.setTimeout(() => navigate("/products", { replace: true }), 1000);
+      const destination = user?.role === "supplier" ? "/supplier/dashboard" : "/products";
+      const timer = window.setTimeout(() => navigate(destination, { replace: true }), 1000);
       return () => window.clearTimeout(timer);
     }
     return undefined;
-  }, [authenticationStatus, showProfileSetup, navigate]);
+  }, [authenticationStatus, showProfileSetup, user, navigate]);
 
   if (!isConnected || !walletAddress) {
     return <Navigate to="/connect-wallet" replace />;
@@ -128,6 +129,12 @@ export default function Authenticate() {
         await switchToSepolia();
       }
       const result = await authenticateWithBackend(signer);
+
+      if (result.user?.role === "supplier") {
+        setAuthenticationStatus("success");
+        navigate("/supplier/dashboard", { replace: true });
+        return;
+      }
 
       if (result.user?.googleLinked) {
         setAuthenticationStatus("success");
@@ -305,13 +312,20 @@ export default function Authenticate() {
         </>
       )}
 
-      <Link
-        to="/connect-wallet"
-        className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#64748B] hover:text-[#2563EB]"
-      >
-        <ArrowLeft size={16} />
-        Back to wallet connection
-      </Link>
+      <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-slate-100 pt-4 text-xs">
+        <Link
+          to="/connect-wallet"
+          className="inline-flex items-center gap-1.5 font-semibold text-[#64748B] hover:text-[#2563EB]"
+        >
+          <ArrowLeft size={15} /> Back to wallet connection
+        </Link>
+        <Link
+          to="/supplier/register"
+          className="font-bold text-blue-600 hover:text-blue-800 transition"
+        >
+          Brand or Supplier? Register here →
+        </Link>
+      </div>
     </AuthShell>
   );
 }
