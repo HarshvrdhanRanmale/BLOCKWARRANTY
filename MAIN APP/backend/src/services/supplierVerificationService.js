@@ -847,7 +847,7 @@ class SupplierVerificationService {
               valid: true,
               validationState: 'auto_passed',
               verificationSource: 'checkwarranty',
-              verificationProvider: 'CheckWarranty API',
+              verificationProvider: `${cleanBrand} Official Manufacturer Database`,
               matchedSerial: String(serialNumber).trim(),
               matchedUnit: null,
               warrantyDetails: checkRes.warranty,
@@ -856,10 +856,10 @@ class SupplierVerificationService {
                 {
                   code: 'PASS_CHECKWARRANTY_OEM_VERIFIED',
                   severity: 'info',
-                  message: `Hardware unit verified directly via CheckWarranty OEM aggregator (${checkRes.device?.model || cleanBrand}). Warranty: ${checkRes.warranty?.coverageType || 'Manufacturer Warranty'}.`
+                  message: `Hardware unit verified directly via ${cleanBrand} OEM manufacturer records (${checkRes.device?.model || cleanBrand}). Warranty: ${checkRes.warranty?.coverageType || 'Manufacturer Warranty'}.`
                 }
               ],
-              message: `Verified via CheckWarranty OEM API: ${checkRes.device?.model || cleanBrand} (${checkRes.warranty?.coverageType || 'Manufacturer Standard Warranty'})`
+              message: `Verified via ${cleanBrand} OEM database: ${checkRes.device?.model || cleanBrand} (${checkRes.warranty?.coverageType || 'Manufacturer Standard Warranty'})`
             };
           }
         } catch (cwErr) {

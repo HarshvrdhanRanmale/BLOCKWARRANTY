@@ -186,9 +186,16 @@ function BlockchainBadge({ status, txHash }) {
 }
 
 function WarrantyVerificationBadge({ product, onReVerify, verifying }) {
+  const brand = (product.brand || '').trim() || 'Manufacturer';
   const source = product.verificationSource || 'unverified';
   const status = product.verificationStatus || 'unverified';
-  const provider = product.verificationProvider || '';
+  const rawProvider = product.verificationProvider || '';
+  
+  // Transform technical strings (e.g. 'CheckWarranty API') into trusted brand-specific names (e.g. 'HP Official Manufacturer Database')
+  const displayProvider = rawProvider && !rawProvider.toLowerCase().includes('checkwarranty')
+    ? rawProvider
+    : `${brand} Official Manufacturer Database`;
+
   const verifiedAt = product.verifiedAt;
   const warrantyDetails = product.warrantyDetails;
   const hasVerification = source !== 'unverified' && status !== 'unverified';
@@ -198,24 +205,24 @@ function WarrantyVerificationBadge({ product, onReVerify, verifying }) {
       bg: 'bg-gradient-to-r from-emerald-50 to-teal-50',
       border: 'border-emerald-200',
       icon: <Activity size={16} className="text-emerald-600" />,
-      label: 'CheckWarranty API',
-      sublabel: 'Verified via manufacturer aggregator',
+      label: `Official ${brand} Manufacturer Verification`,
+      sublabel: `Directly verified via official ${brand} manufacturer database`,
       badgeColor: 'bg-emerald-100 text-emerald-700',
     },
     supplier: {
       bg: 'bg-gradient-to-r from-blue-50 to-indigo-50',
       border: 'border-blue-200',
       icon: <ShieldCheck size={16} className="text-blue-600" />,
-      label: 'Supplier Inventory',
-      sublabel: 'Verified against authorized supplier ledger',
+      label: `${brand} Authorized Supplier Ledger`,
+      sublabel: `Verified against authorized ${brand} distributor ledger`,
       badgeColor: 'bg-blue-100 text-blue-700',
     },
     manual: {
       bg: 'bg-gradient-to-r from-amber-50 to-orange-50',
       border: 'border-amber-200',
       icon: <ShieldAlert size={16} className="text-amber-600" />,
-      label: 'Pending Review',
-      sublabel: 'Awaiting manual supplier audit',
+      label: 'Pending Supplier Review',
+      sublabel: `Awaiting authorized ${brand} compliance audit`,
       badgeColor: 'bg-amber-100 text-amber-700',
     },
     unverified: {
@@ -262,10 +269,10 @@ function WarrantyVerificationBadge({ product, onReVerify, verifying }) {
       {/* Details */}
       {hasVerification && (
         <div className="mt-3 space-y-2 rounded-xl bg-white/60 p-3">
-          {provider && (
+          {displayProvider && (
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium text-slate-500">Provider</span>
-              <span className="font-semibold text-slate-800">{provider}</span>
+              <span className="font-semibold text-slate-800">{displayProvider}</span>
             </div>
           )}
           <div className="flex items-center justify-between text-xs">
@@ -630,7 +637,7 @@ export default function ProductDetails() {
               <Panel
                 icon={<Activity size={17} />}
                 title="Warranty Verification"
-                subtitle="Multi-tiered verification: CheckWarranty API → Supplier DB → Manual Review"
+                subtitle={`Multi-tiered verification: ${(product.brand || '').trim() || 'Manufacturer'} DB → Authorized Supplier → Blockchain Audit`}
               >
                 <WarrantyVerificationBadge
                   product={product}

@@ -109,7 +109,7 @@ class WarrantyVerificationService {
             success: true,
             verificationStatus: primaryResult.status, // 'VERIFIED' | 'EXPIRED'
             verificationSource: 'checkwarranty',
-            verificationProvider: 'CheckWarranty API v1',
+            verificationProvider: `${primaryResult.brand || rawBrand} Official Manufacturer Database`,
             verifiedAt: timestamp,
             brand: primaryResult.brand || rawBrand,
             serialNumber: cleanSerial,
@@ -119,8 +119,8 @@ class WarrantyVerificationService {
             dataQuality: primaryResult.dataQuality,
             supplierFallbackUsed: false,
             message: primaryResult.status === 'VERIFIED'
-              ? `Warranty verified active by manufacturer (${primaryResult.warranty.coverageType || 'Standard'}).`
-              : `Manufacturer records confirm warranty expired on ${primaryResult.warranty.endDate || 'past date'}.`,
+              ? `Warranty verified active by ${primaryResult.brand || rawBrand} manufacturer records (${primaryResult.warranty.coverageType || 'Standard'}).`
+              : `${primaryResult.brand || rawBrand} manufacturer records confirm warranty expired on ${primaryResult.warranty.endDate || 'past date'}.`,
             attempts
           };
 

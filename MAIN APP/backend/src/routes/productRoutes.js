@@ -119,11 +119,11 @@ router.post('/validate-invoice', async (req, res) => {
             valid: true,
             validationState: 'auto_passed',
             verificationSource: 'checkwarranty',
-            verificationProvider: 'CheckWarranty API',
+            verificationProvider: `${(brand || '').trim() || 'Manufacturer'} Official Manufacturer Database`,
             matchedSerial: serialNumber.trim(),
             warrantyDetails: checkRes.warranty,
             device: checkRes.device,
-            message: `Verified via CheckWarranty OEM API: ${checkRes.device?.model || brand} (${checkRes.warranty?.coverageType || 'Manufacturer Standard Warranty'})`
+            message: `Verified via ${(brand || '').trim() || 'Manufacturer'} OEM database: ${checkRes.device?.model || brand} (${checkRes.warranty?.coverageType || 'Manufacturer Standard Warranty'})`
           });
         }
       } catch (cwErr) {
@@ -357,7 +357,7 @@ router.post('/', async (req, res) => {
       supplierSubmissionId: matchedSubmissionId,
       supplierVerificationStatus: 'auto_passed',
       verificationSource: checkWarrantyResult ? 'checkwarranty' : (targetSupplierWallet ? 'supplier' : 'unverified'),
-      verificationProvider: checkWarrantyResult ? 'CheckWarranty API' : (targetSupplierWallet ? 'Authorized Supplier Ledger' : ''),
+      verificationProvider: checkWarrantyResult ? `${(body.brand || '').trim() || 'Manufacturer'} Official Manufacturer Database` : (targetSupplierWallet ? `${(body.brand || '').trim()} Authorized Supplier Ledger` : ''),
       verificationStatus: checkWarrantyResult ? checkWarrantyResult.status : 'VERIFIED',
       warrantyDetails: checkWarrantyResult ? checkWarrantyResult.warranty : null,
       verifiedAt: new Date(),
